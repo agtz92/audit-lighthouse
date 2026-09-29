@@ -5,9 +5,18 @@
  * dashboard también necesita su parte. Las escrituras del worker son cortas.
  */
 
-import { Pool } from 'pg';
+import { Pool, types as pgTypes } from 'pg';
 import { env } from '../config/env.js';
 import { log } from '../lib/logger.js';
+
+// El driver pg devuelve int8 (bigint) y numeric como string, porque no caben
+// garantizados en un number de JS. Nuestros ids son bigserial y los conteos son
+// count(*): ninguno se acerca a 2^53, y tratarlos como string convierte cualquier
+// suma en concatenación silenciosa. Los parseamos a number una sola vez, aquí.
+const OID_INT8 = 20;
+const OID_NUMERIC = 1700;
+pgTypes.setTypeParser(OID_INT8, (v) => Number(v));
+pgTypes.setTypeParser(OID_NUMERIC, (v) => Number(v));
 
 let pool: Pool | undefined;
 

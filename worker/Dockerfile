@@ -10,8 +10,15 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# Deja constancia en el log de build de con qué Node se está construyendo.
-RUN node --version && npm --version
+# Ghostscript comprime los PDFs finales: deduplica las fuentes e imágenes que
+# Chromium repite en cada página concatenada y submuestrea las imágenes. Sin esto
+# un full.pdf de 26 páginas web pesa 64 MB.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ghostscript \
+ && rm -rf /var/lib/apt/lists/*
+
+# Deja constancia en el log de build de con qué Node y Ghostscript se construye.
+RUN node --version && npm --version && gs --version
 
 # Las dependencias en su propia capa: cambiar código fuente no reinstala nada.
 COPY worker/package.json worker/package-lock.json ./worker/

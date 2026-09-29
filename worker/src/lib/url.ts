@@ -60,6 +60,26 @@ export function normalizeUrl(raw: string, base?: string, opts: NormalizeOptions 
   return u.toString();
 }
 
+/**
+ * Llave para deduplicar páginas dentro de un mismo sitio.
+ *
+ * Ignora el esquema y el `www.` porque para un sitio son la misma página:
+ * grupohule.com publica su sitemap con URLs en el apex mientras su home vive en
+ * www, así que comparando URLs completas la home se auditaría dos veces —una por
+ * cada forma— y aparecería duplicada en full.pdf.
+ *
+ * El puerto sí cuenta: un :8443 es otro servicio, no otra escritura del mismo.
+ */
+export function canonicalKey(url: string): string {
+  try {
+    const u = new URL(url);
+    const port = u.port === '' ? '' : `:${u.port}`;
+    return `${bareHost(u.hostname)}${port}${u.pathname}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
 /** Extensiones que no son páginas: ni se auditan ni se meten al PDF. */
 const NON_PAGE_EXT =
   /\.(pdf|zip|rar|7z|gz|tgz|docx?|xlsx?|pptx?|csv|jpe?g|png|gif|webp|avif|svg|ico|bmp|tiff?|mp[34]|m4[av]|wav|ogg|webm|mov|avi|woff2?|ttf|otf|eot|css|js|mjs|json|xml|rss|atom|txt)$/i;

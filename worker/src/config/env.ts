@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { PDF_QUALITIES } from '../pdf/compress.js';
 
 /** Entero desde string de entorno, con default. */
 const int = (def: number, min: number, max: number) =>
@@ -68,6 +69,10 @@ const envSchema = z.object({
 
   SITES_FILE: str('/app/sites.yaml'),
   PDF_DIR: str('/data/pdfs'),
+  // Perfil de compresión de Ghostscript: screen (72 dpi) | ebook (150) |
+  // printer (300) | none. El texto nunca se rasteriza; solo bajan las imágenes.
+  PDF_QUALITY: str('ebook').pipe(z.enum(PDF_QUALITIES)),
+  PDF_COMPRESS_TIMEOUT_MS: int(180_000, 5000, 900_000),
   LOG_LEVEL: str('info').pipe(z.enum(['debug', 'info', 'warn', 'error'])),
   USER_AGENT: str('site-monitor/1.0 (+auditoria interna)'),
 });

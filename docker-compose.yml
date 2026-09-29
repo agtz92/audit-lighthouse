@@ -68,6 +68,8 @@ services:
       CERT_EXPIRY_WARN_DAYS: ${CERT_EXPIRY_WARN_DAYS:-21}
       SITES_FILE: ${SITES_FILE:-/app/sites.yaml}
       PDF_DIR: ${PDF_DIR:-/data/pdfs}
+      PDF_QUALITY: ${PDF_QUALITY:-ebook}
+      PDF_COMPRESS_TIMEOUT_MS: ${PDF_COMPRESS_TIMEOUT_MS:-180000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       USER_AGENT: ${USER_AGENT:-site-monitor/1.0 (+auditoria interna)}
     volumes:

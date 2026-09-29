@@ -1,0 +1,163 @@
+/**
+ * Escritura del ciclo de vida de una corrida: runs y site_runs.
+ */
+
+import { db } from './pool.js';
+import type { ErrorCategory } from '../audit/page-metrics.js';
+import type { DiscoveryMethod } from '../discovery/index.js';
+import type { CertInfo } from '../audit/tls.js';
+
+export type RunTrigger = 'scheduled' | 'manual' | 'recovery';
+export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
+export type SiteRunStatus = 'running' | 'ok' | 'partial' | 'failed' | 'skipped_timeout';
+
+export async function startRun(trigger: RunTrigger): Promise<number> {
+  const { rows } = await db().query<{ id: number }>(
+    `INSERT INTO runs (trigger, status) VALUES ($1, 'running') RETURNING id`,
+    [trigger],
+  );
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('INSERT en runs no devolvió id');
+  return id;
+}
+
+export interface RunOutcome {
+  status: RunStatus;
+  sitesTotal: number;
+  sitesOk: number;
+  sitesFailed: number;
+  sitesSkipped: number;
+  budgetExceeded: boolean;
+  notes?: string | null;
+}
+
+export async function finishRun(runId: number, outcome: RunOutcome): Promise<void> {
+  await db().query(
+    `UPDATE runs SET
+       status          = $2,
+       finished_at     = now(),
+       duration_ms     = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::integer,
+       sites_total     = $3,
+       sites_ok        = $4,
+       sites_failed    = $5,
+       sites_skipped   = $6,
+       budget_exceeded = $7,
+       notes           = $8
+     WHERE id = $1`,
+    [
+      runId,
+      outcome.status,
+      outcome.sitesTotal,
+      outcome.sitesOk,
+      outcome.sitesFailed,
+      outcome.sitesSkipped,
+      outcome.budgetExceeded,
+      outcome.notes ?? null,
+    ],
+  );
+}
+
+export async function startSiteRun(runId: number, siteId: string): Promise<number> {
+  const { rows } = await db().query<{ id: number }>(
+    `INSERT INTO site_runs (run_id, site_id, status) VALUES ($1, $2, 'running')
+     ON CONFLICT (run_id, site_id) DO UPDATE SET status = 'running', started_at = now()
+     RETURNING id`,
+    [runId, siteId],
+  );
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('INSERT en site_runs no devolvió id');
+  return id;
+}
+
+export interface SiteRunOutcome {
+  status: SiteRunStatus;
+  discovery: DiscoveryMethod | null;
+  pagesDiscovered: number;
+  pagesAudited: number;
+  pagesFailed: number;
+  maxPages: number;
+  truncated: boolean;
+  homeHttpStatus: number | null;
+  cert: CertInfo | null;
+  errorCategory: ErrorCategory | null;
+  errorMessage: string | null;
+}
+
+export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome): Promise<void> {
+  await db().query(
+    `UPDATE site_runs SET
+       status              = $2,
+       finished_at         = now(),
+       duration_ms         = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::integer,
+       discovery           = $3,
+       pages_discovered    = $4,
+       pages_audited       = $5,
+       pages_failed        = $6,
+       max_pages           = $7,
+       truncated           = $8,
+       home_http_status    = $9,
+       cert_valid          = $10,
+       cert_issuer         = $11,
+       cert_valid_from     = $12,
+       cert_valid_to       = $13,
+       cert_days_remaining = $14,
+       cert_error          = $15,
+       error_category      = $16,
+       error_message       = $17
+     WHERE id = $1`,
+    [
+      siteRunId,
+      outcome.status,
+      outcome.discovery,
+      outcome.pagesDiscovered,
+      outcome.pagesAudited,
+      outcome.pagesFailed,
+      outcome.maxPages,
+      outcome.truncated,
+      outcome.homeHttpStatus,
+      outcome.cert?.valid ?? null,
+      outcome.cert?.issuer ?? null,
+      outcome.cert?.validFrom ?? null,
+      outcome.cert?.validTo ?? null,
+      outcome.cert?.daysRemaining ?? null,
+      outcome.cert?.error ?? null,
+      outcome.errorCategory,
+      outcome.errorMessage,
+    ],
+  );
+}
+
+/** Metadatos de los PDFs, escritos por la fase 3 cuando los archivos ya están en su sitio. */
+export interface PdfMeta {
+  bytes: number;
+  pages: number;
+  generatedAt: Date;
+}
+
+export async function recordPdfMeta(
+  siteRunId: number,
+  home: PdfMeta | null,
+  full: (PdfMeta & { urls: number }) | null,
+): Promise<void> {
+  await db().query(
+    `UPDATE site_runs SET
+       home_pdf_bytes        = COALESCE($2, home_pdf_bytes),
+       home_pdf_pages        = COALESCE($3, home_pdf_pages),
+       home_pdf_generated_at = COALESCE($4, home_pdf_generated_at),
+       full_pdf_bytes        = COALESCE($5, full_pdf_bytes),
+       full_pdf_pages        = COALESCE($6, full_pdf_pages),
+       full_pdf_urls         = COALESCE($7, full_pdf_urls),
+       full_pdf_generated_at = COALESCE($8, full_pdf_generated_at)
+     WHERE id = $1`,
+    [
+      siteRunId,
+      home?.bytes ?? null,
+      home?.pages ?? null,
+      home?.generatedAt ?? null,
+      full?.bytes ?? null,
+      full?.pages ?? null,
+      full?.urls ?? null,
+      full?.generatedAt ?? null,
+    ],
+  );
+}
