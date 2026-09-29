@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.next/
+.env
+*.log
+
+# PDFs generados: se reemplazan cada corrida, no van al repo
+data/pdfs/*
+!data/pdfs/.gitkeep

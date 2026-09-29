@@ -1,0 +1,86 @@
+name: site-monitor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Todo el sistema vive aquí: base de datos, worker (con su propio scheduler) y
+# dashboard. No hay cron de macOS ni contenedor de cron aparte.
+#   docker compose up -d      levanta y programa la corrida diaria de las 06:00
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-tz: &tz ${TZ:-America/Mexico_City}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sitemon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD; copia .env.example a .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sitemon}
+      TZ: *tz
+      PGTZ: *tz
+    # Ajustado a los 384 MB que le asignamos abajo.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - max_connections=30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # El puerto NO se publica: worker y dashboard llegan por la red de Compose.
+    # Descomenta si quieres entrar con psql desde la Mac (5432 lo tiene el
+    # Postgres nativo del host y 5433 fantasy-hq).
+    # ports:
+    #   - "${DB_PORT:-5434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sitemon} -d ${POSTGRES_DB:-sitemon}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sitemon}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sitemon}
+      TZ: *tz
+      SCHEDULE_CRON: ${SCHEDULE_CRON:-0 6 * * *}
+      RECOVERY_RUN_ON_BOOT: ${RECOVERY_RUN_ON_BOOT:-true}
+      CONCURRENCY: ${CONCURRENCY:-2}
+      PAGE_CONCURRENCY: ${PAGE_CONCURRENCY:-3}
+      LIGHTHOUSE_CONCURRENCY: ${LIGHTHOUSE_CONCURRENCY:-1}
+      RUN_BUDGET_MINUTES: ${RUN_BUDGET_MINUTES:-45}
+      NAV_TIMEOUT_MS: ${NAV_TIMEOUT_MS:-30000}
+      LIGHTHOUSE_TIMEOUT_MS: ${LIGHTHOUSE_TIMEOUT_MS:-120000}
+      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      PERF_DROP_THRESHOLD: ${PERF_DROP_THRESHOLD:-10}
+      CERT_EXPIRY_WARN_DAYS: ${CERT_EXPIRY_WARN_DAYS:-21}
+      SITES_FILE: ${SITES_FILE:-/app/sites.yaml}
+      PDF_DIR: ${PDF_DIR:-/data/pdfs}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      USER_AGENT: ${USER_AGENT:-site-monitor/1.0 (+auditoria interna)}
+    volumes:
+      - ./data/pdfs:/data/pdfs
+      - ./sites.yaml:/app/sites.yaml:ro
+    # Chromium se ahoga con el /dev/shm de 64 MB que trae Docker por default.
+    shm_size: 512mb
+    # Reaper de PID 1: sin esto los Chromium que mueren mal quedan como zombies.
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 2048M
+
+volumes:
+  pgdata:

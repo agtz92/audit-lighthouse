@@ -1,0 +1,36 @@
+{
+  "name": "site-monitor-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "check": "tsx src/cli.ts",
+    "migrate": "node-pg-migrate -m ../db/migrations",
+    "migrate:up": "node-pg-migrate -m ../db/migrations up",
+    "migrate:down": "node-pg-migrate -m ../db/migrations down",
+    "webhook:test": "tsx src/notify/test-webhook.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lighthouse": "^13.5.0",
+    "node-cron": "^4.6.0",
+    "node-pg-migrate": "^9.0.0",
+    "p-limit": "^7.3.3",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.23.0",
+    "playwright": "1.63.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

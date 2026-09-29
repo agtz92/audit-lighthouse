@@ -1,0 +1,147 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Lista de sitios auditados. Se lee en cada corrida: para agregar o quitar un
+# sitio edita este archivo, no hace falta reiniciar ningún contenedor.
+#
+#   id       slug estable. Se usa para el nombre de la carpeta de PDFs y como
+#            llave en la base de datos. Si lo cambias pierdes el historial del
+#            sitio, así que elígelo una vez y déjalo quieto.
+#   url      URL principal. Es la única que recibe Lighthouse y la que va en home.pdf.
+#   sitemap  opcional. Si no lo pones se busca /sitemap.xml y luego la directiva
+#            Sitemap: de robots.txt; si tampoco hay, se crawlean links internos
+#            desde la home.
+#   exclude  patrones de URL (subcadena) que se ignoran al descubrir páginas.
+# ─────────────────────────────────────────────────────────────────────────────
+
+defaults:
+  maxPages: 50
+  timeoutMs: 30000
+  viewport: { width: 1440, height: 900 }
+  waitUntil: networkidle
+
+sites:
+  # ── Hule y derivados ──────────────────────────────────────────────────────
+  - id: corthw
+    name: Cort HW
+    url: https://www.corthw.com
+    sitemap: https://www.corthw.com/sitemap.xml   # 32 URLs
+    enabled: true
+
+  - id: matmarkt
+    name: MatMarkt
+    url: https://www.matmarkt.com
+    sitemap: https://www.matmarkt.com/sitemap.xml # 62 URLs
+    enabled: true
+
+  - id: grupohule
+    name: Grupo Hule
+    url: https://www.grupohule.com
+    # Sitemap índice: las URLs de dentro viven en el apex (grupohule.com, sin www).
+    # El descubridor las acepta porque normaliza www/apex como el mismo sitio.
+    sitemap: https://www.grupohule.com/sitemap.xml # 78 URLs vía sitemap-0.xml
+    enabled: true
+
+  - id: placadehule
+    name: Placa de Hule
+    url: https://www.placadehule.com
+    sitemap: https://www.placadehule.com/sitemap.xml # 19 URLs
+    enabled: true
+
+  - id: hulequeretaro
+    name: Hule Querétaro
+    url: https://www.hulequeretaro.com
+    sitemap: https://www.hulequeretaro.com/sitemap.xml # 183 URLs
+    enabled: true
+
+  - id: expertoshule
+    name: Expertos Hule
+    url: https://www.expertoshule.com
+    sitemap: https://www.expertoshule.com/sitemap.xml # 192 URLs
+    enabled: true
+
+  - id: hule-mx
+    name: Hule MX
+    url: https://www.hule.com.mx
+    sitemap: https://www.hule.com.mx/sitemap.xml # 195 URLs
+    enabled: true
+
+  - id: phasa
+    name: PHASA
+    url: https://www.phasa.mx
+    sitemap: https://www.phasa.mx/sitemap.xml # 348 URLs
+    enabled: true
+
+  - id: rollospvc
+    name: Rollos PVC
+    url: https://www.rollospvc.com
+    # 2026-09-29: responde HTTP 503 (también con User-Agent de navegador real).
+    # Se deja habilitado a propósito: el dashboard debe mostrarlo caído.
+    enabled: true
+
+  # ── Contenido y otros ─────────────────────────────────────────────────────
+  - id: mexgamer
+    name: MexGamer
+    url: https://www.mexgamer.com
+    sitemap: https://www.mexgamer.com/sitemap.xml # 1257 URLs -> se trunca a maxPages
+    enabled: true
+
+  - id: 3minread
+    name: 3 Min Read
+    url: https://www.3minread.com
+    sitemap: https://www.3minread.com/sitemap.xml # 1228 URLs -> se trunca a maxPages
+    enabled: true
+
+  - id: 10datos
+    name: 10 Datos
+    url: https://www.10datos.com
+    # 2026-09-29: HTTP 503.
+    enabled: true
+
+  - id: antesdelexamen
+    name: Antes del Examen
+    url: https://www.antesdelexamen.com
+    # 2026-09-29: HTTP 503.
+    enabled: true
+
+  - id: kawaiimx
+    name: Kawaii MX
+    url: https://www.kawaiimx.com
+    # 2026-09-29: HTTP 409 en IP de Shopify; suele ser dominio mal conectado.
+    enabled: true
+
+  - id: compatips
+    name: CompaTips
+    url: https://www.compatips.com
+    # robots.txt anuncia /sitemap.xml pero esa URL no devuelve XML.
+    # Se descubre por crawl de links internos.
+    enabled: true
+
+  - id: foodplusfeed
+    name: Food Plus Feed
+    url: https://www.foodplusfeed.com
+    sitemap: https://www.foodplusfeed.com/sitemap.xml # 23 URLs
+    enabled: true
+
+  - id: kimixcenter
+    name: Kimix Center
+    url: https://www.kimixcenter.com
+    # Sin sitemap ni directiva en robots.txt -> crawl.
+    enabled: true
+
+  - id: dicatrc
+    name: Dicatrc
+    url: https://www.dicatrc.com
+    # Sin sitemap -> crawl.
+    enabled: true
+
+  - id: eastlake
+    name: Eastlake Servicios
+    # El dominio que pasaste, www-eastlake-servicios.com, no resuelve (guiones
+    # en lugar de puntos). Este sí: 216.150.1.129.
+    url: https://www.eastlake-servicios.com
+    enabled: true
+
+  - id: continuu
+    name: Continuu
+    url: https://www.continuu.it
+    sitemap: https://www.continuu.it/sitemap.xml # 26 URLs
+    enabled: true
