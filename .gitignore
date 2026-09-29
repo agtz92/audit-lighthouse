@@ -7,3 +7,7 @@ dist/
 # PDFs generados: se reemplazan cada corrida, no van al repo
 data/pdfs/*
 !data/pdfs/.gitkeep
+
+# Next.js
+dashboard/.next/
+dashboard/next-env.d.ts

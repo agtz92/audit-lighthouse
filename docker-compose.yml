@@ -75,6 +75,9 @@ services:
     volumes:
       - ./data/pdfs:/data/pdfs
       - ./sites.yaml:/app/sites.yaml:ro
+    # Permite que WEBHOOK_URL apunte a un servicio del host (host.docker.internal).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Chromium se ahoga con el /dev/shm de 64 MB que trae Docker por default.
     shm_size: 512mb
     # Reaper de PID 1: sin esto los Chromium que mueren mal quedan como zombies.
@@ -83,6 +86,28 @@ services:
       resources:
         limits:
           memory: 2048M
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sitemon}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sitemon}
+      PDF_DIR: /data/pdfs
+      TZ: *tz
+    volumes:
+      # Solo lectura: el dashboard sirve los PDFs, nunca los escribe.
+      - ./data/pdfs:/data/pdfs:ro
+    ports:
+      - "${DASHBOARD_PORT:-8480}:3000"
+    deploy:
+      resources:
+        limits:
+          memory: 640M
 
 volumes:
   pgdata:
