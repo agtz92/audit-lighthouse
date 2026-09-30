@@ -81,6 +81,21 @@ function roundOrNull(value: number | null): number | null {
   return value === null ? null : Math.round(value);
 }
 
+/**
+ * ¿La medición sirve para un informe?
+ *
+ * `ok` solo dice que Lighthouse corrió sin lanzar. No basta: una corrida puede
+ * devolver accesibilidad, buenas prácticas y SEO perfectos y, aun así, traer la
+ * categoría de rendimiento vacía —le pasa cuando no logra detectar el Largest
+ * Contentful Paint— y eso produce un informe sin la mitad que importa.
+ *
+ * Visto en producción: kimixcenter.com midió ok=true con performance en NULL,
+ * mientras su versión móvil de la misma corrida daba 93.
+ */
+export function isComplete(outcome: LighthouseOutcome): boolean {
+  return outcome.ok && outcome.scores.performance !== null && outcome.metrics.lcpMs !== null;
+}
+
 export async function runLighthouse(
   url: string,
   cdpPort: number,

@@ -327,3 +327,153 @@ details.errors li { margin-bottom: 3px; }
 .err-msg { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
 
 .empty { padding: 28px 12px; text-align: center; color: var(--ink-muted); font-size: 12.5px; }
+
+/* ── Administración de sitios ────────────────────────────────────────────── */
+.site-form .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 14px;
+}
+.site-form label { display: flex; flex-direction: column; gap: 3px; }
+.site-form label > span { font-size: 11.5px; font-weight: 560; }
+.site-form label > span em { font-style: normal; color: var(--ink-muted); font-weight: 400; }
+.site-form input[type="text"],
+.site-form input[type="url"],
+.site-form input[type="number"],
+.site-form input:not([type]) {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--plane);
+  color: var(--ink);
+}
+.site-form input:focus-visible { outline: 2px solid var(--series-desktop); outline-offset: 1px; }
+.site-form input[aria-invalid="true"] { border-color: var(--critical); }
+.site-form small { font-size: 10.5px; color: var(--ink-muted); }
+.site-form small.bad { color: var(--critical); }
+.site-form label.check { flex-direction: row; align-items: center; gap: 7px; align-self: end; padding-bottom: 4px; }
+.site-form label.check input { margin: 0; }
+.site-form .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.site-form button[type="submit"] {
+  font: inherit; font-size: 12.5px; font-weight: 560;
+  padding: 6px 14px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--surface);
+}
+.site-form button[type="submit"]:disabled { opacity: .55; cursor: progress; }
+.msg { font-size: 11.5px; }
+.msg.ok { color: var(--good); }
+.msg.bad { color: var(--critical); }
+button.ghost.danger { border-color: rgba(208,59,59,.4); color: var(--critical); }
+button.ghost.danger:hover { background: var(--critical-wash); }
+
+/* ── Estado actual de un sitio ───────────────────────────────────────────── */
+.now {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.now > div { background: var(--surface); padding: 9px 11px; }
+.now .k {
+  font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--ink-muted); white-space: nowrap;
+}
+.now .v {
+  font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-top: 2px;
+  font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 4px;
+}
+.now .n { font-size: 10.5px; color: var(--ink-2); margin-top: 1px; }
+
+/* ── Impresión ───────────────────────────────────────────────────────────────
+   El panel por sitio se imprime tal cual, sin una vista aparte: dos plantillas
+   del mismo contenido acaban diciendo cosas distintas.
+
+   Los tokens se fuerzan a claro. El tema del lector no debe llegar al papel —
+   imprimir el modo oscuro gasta tóner y deja el texto ilegible en muchas
+   impresoras.                                                                */
+@media print {
+  :root,
+  :root[data-theme='dark'],
+  :root:not([data-theme='light']) {
+    color-scheme: light;
+    --surface: #ffffff;
+    --plane: #ffffff;
+    --raised: #ffffff;
+    --ink: #10141b;
+    --ink-2: #444b56;
+    --ink-muted: #6b7380;
+    --grid: #e3e6ea;
+    --axis: #b9bfc8;
+    --border: #d8dce2;
+    --border-strong: #c2c8d0;
+    --series-desktop: #2a78d6;
+    --series-mobile: #eb6834;
+    --good-wash: #eaf5ee;
+    --warning-wash: #fdf4e3;
+    --critical-wash: #fbeeed;
+  }
+
+  @page { size: A4 portrait; margin: 12mm 10mm; }
+
+  html, body { background: #fff; font-size: 9.5pt; }
+  .shell { max-width: none; padding: 0; }
+
+  /* Fuera lo que solo sirve en pantalla. */
+  .topbar,
+  .no-print,
+  .ranges,
+  button,
+  details.errors summary { display: none !important; }
+
+  /* Los errores colapsados se abren: en papel no hay dónde hacer clic. */
+  details.errors > ul { display: block !important; }
+  details.errors[open] summary { display: none !important; }
+
+  .print-only { display: block !important; }
+
+  /* Nada se parte a la mitad entre dos hojas. */
+  .card, .chart-card, .now > div, .tile { break-inside: avoid; page-break-inside: avoid; }
+  .card { box-shadow: none; border: 1px solid var(--border); margin-bottom: 10px; }
+  .card > header { padding: 7px 10px; }
+
+  .now { break-inside: auto; }
+  .charts { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .chart-card { padding: 8px 10px 4px; }
+  .chart-card h3 { font-size: 10pt; }
+
+  /* Recharts dibuja SVG: se deja escalar al ancho de la hoja. */
+  .recharts-responsive-container,
+  .recharts-wrapper { max-width: 100% !important; }
+  svg { max-width: 100%; height: auto; }
+
+  thead { display: table-header-group; }  /* el encabezado se repite por hoja */
+  tbody tr:hover { background: none; }
+  a { text-decoration: none; color: inherit; }
+
+  /* Las tendencias largas y el historial arrancan en hoja nueva. */
+  .page-break { break-before: page; page-break-before: always; }
+}
+
+/* Encabezado que solo existe en papel: en pantalla esa información ya está
+   en la barra superior y en el título de la tarjeta. */
+.print-only { display: none; }
+.print-header {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.print-header h1 { font-size: 16pt; margin: 0 0 2px; letter-spacing: -0.02em; }
+.print-header .meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 9pt;
+  color: var(--ink-2);
+}

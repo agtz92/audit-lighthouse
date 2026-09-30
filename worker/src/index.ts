@@ -4,6 +4,7 @@
  * contenedor de cron aparte.
  */
 
+import { installProcessGuards } from './lib/guards.js';
 import cron from 'node-cron';
 import { env } from './config/env.js';
 import { loadSitesConfig } from './config/sites.js';
@@ -44,6 +45,7 @@ function localNow(tz: string): string {
 }
 
 async function main(): Promise<void> {
+  installProcessGuards();
   const cfg = env();
 
   log.info('worker arrancando', {

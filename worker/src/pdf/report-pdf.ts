@@ -35,6 +35,25 @@ export interface RenderReportOptions {
   timeoutMs: number;
   /** Ancho del viewport al imprimir. Afecta cómo se acomoda el reporte. */
   width?: number;
+  /** Texto de la izquierda del pie: sitio, estrategia y fecha. */
+  footerLeft?: string;
+}
+
+/**
+ * Pie que dibuja Chromium en el margen de cada página.
+ *
+ * La numeración la pone él, no la plantilla: un "Hoja 2 de 5" escrito a mano
+ * miente en cuanto el contenido ocupa una hoja más, y el informe debe poder
+ * crecer según lo que encuentre. El tamaño de fuente va inline porque el
+ * default de Chromium para el pie es ilegible.
+ */
+function footerTemplate(left: string): string {
+  const esc = (t: string): string => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<div style="width:100%;font-family:Archivo,Helvetica,Arial,sans-serif;font-size:7pt;
+      letter-spacing:.09em;color:#98a1ad;padding:0 15mm;display:flex;justify-content:space-between;">
+    <span>${esc(left)}</span>
+    <span>Hoja <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+  </div>`;
 }
 
 /**
@@ -71,7 +90,12 @@ export async function renderReportPdf(
         return await page.pdf({
           format: 'A4',
           printBackground: true,
-          margin: { top: '0.4in', bottom: '0.4in', left: '0.3in', right: '0.3in' },
+          displayHeaderFooter: true,
+          headerTemplate: '<div></div>',
+          footerTemplate: footerTemplate(opts.footerLeft ?? ''),
+          // El pie vive en el margen inferior: sin espacio reservado, Chromium
+          // lo recorta y simplemente no aparece.
+          margin: { top: '0mm', bottom: '12mm', left: '0mm', right: '0mm' },
           preferCSSPageSize: false,
         });
       })(),

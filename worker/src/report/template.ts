@@ -22,6 +22,13 @@ import type { LighthouseStrategy } from '../audit/lighthouse.js';
 /** Tipado por estrategia y no como Record<string,…>: así el índice no es opcional. */
 const ESTRATEGIA: Record<LighthouseStrategy, string> = { desktop: 'Escritorio', mobile: 'Móvil' };
 
+/** Recorta la descripción de un hallazgo para que su bloque no crezca de más. */
+function corto(text: string, max = LIMITS.findingDescriptionChars): string {
+  if (text.length <= max) return text;
+  const corte = text.lastIndexOf(' ', max);
+  return `${text.slice(0, corte > 40 ? corte : max).replace(/[.,;:]$/, '')}…`;
+}
+
 function tag(rating: Rating): string {
   if (rating === 'none') return '';
   const clase = rating === 'good' ? 'tag-g' : rating === 'warning' ? 'tag-w' : 'tag-b';
@@ -73,17 +80,18 @@ function header(data: ReportData, titulo: string, hoja: number): string {
   </header>`;
 }
 
-function footer(data: ReportData, hoja: number, total: number): string {
-  return `<div class="foot">
-    <span>${esc(data.site.name)} · ${ESTRATEGIA[data.strategy]}</span>
-    <span>${longDate(data.runAt)}</span>
-    <span>Hoja ${hoja} de ${total}</span>
-  </div>`;
+/**
+ * El pie de página ya NO lo pone la plantilla: lo dibuja Chromium en el margen,
+ * con la numeración real. Un "Hoja 2 de 5" escrito a mano miente en cuanto el
+ * contenido ocupa una hoja más, y el informe debe poder crecer según lo que
+ * encuentre en cada sitio.
+ */
+export function footerLeftText(data: ReportData): string {
+  return `${data.site.name} · ${ESTRATEGIA[data.strategy]} · ${longDate(data.runAt)}`;
 }
 
 export async function renderReportHtml(data: ReportData): Promise<string> {
   const fuentes = await fontFaceCss();
-  const TOTAL = 5;
 
   const m = data.metrics;
   const rLcp = rate(m.lcpMs, THRESHOLDS.lcpMs);
@@ -122,7 +130,8 @@ body {
   -webkit-print-color-adjust:exact; print-color-adjust:exact;
 }
 .sheet {
-  width:210mm; min-height:297mm; padding:16mm 15mm 12mm;
+  /* 285mm = A4 menos los 12mm de margen inferior donde Chromium dibuja el pie. */
+  width:210mm; min-height:283mm; padding:16mm 15mm 8mm;
   display:flex; flex-direction:column; page-break-after:always;
 }
 .sheet:last-child { page-break-after:auto; }
@@ -213,7 +222,6 @@ tbody tr:last-child td { border-bottom:none; }
 .callout { background:var(--wash); border-left:3px solid var(--accent); padding:9px 11px; font-size:9pt; color:var(--muted); line-height:1.45; }
 .callout b { color:var(--ink); font-weight:600; }
 
-.foot { margin-top:auto; padding-top:10px; border-top:1px solid var(--rule); display:flex; justify-content:space-between; gap:14px; font-family:Archivo,sans-serif; font-weight:500; font-size:7pt; letter-spacing:.09em; color:var(--faint); }
 .empty { font-size:9.5pt; color:var(--muted); font-style:italic; }
 </style></head><body>
 
@@ -234,7 +242,7 @@ tbody tr:last-child td { border-bottom:none; }
     <div><dt>Fecha</dt><dd>${longDate(data.runAt)}</dd></div>
     <div><dt>Hora</dt><dd>${time(data.runAt)} CDMX</dd></div>
     <div><dt>Folio</dt><dd>${data.folio}</dd></div>
-    <div><dt>Hojas</dt><dd>${TOTAL}</dd></div>
+    
   </dl>
 </section>
 
@@ -268,8 +276,6 @@ tbody tr:last-child td { border-bottom:none; }
         <div><b>${esc(p.title)}</b><p>${esc(p.detail)}</p></div>
         <span class="impact ${p.severity === 'critical' ? 'b' : 'w'}">${esc(p.impact)}</span>
       </li>`).join('')}</ol>`}
-
-  ${footer(data, 2, TOTAL)}
 </section>
 
 <!-- ═══════════ RENDIMIENTO ═══════════ -->
@@ -315,8 +321,6 @@ tbody tr:last-child td { border-bottom:none; }
       </tr>`).join('')}
     </tbody>
   </table>
-
-  ${footer(data, 3, TOTAL)}
 </section>
 
 <!-- ═══════════ CALIDAD ═══════════ -->
@@ -328,7 +332,7 @@ tbody tr:last-child td { border-bottom:none; }
     ? '<p class="empty">Todas las auditorías automáticas de accesibilidad pasaron.</p>'
     : `<ul class="find">${a11y.map((f) => `<li>
         <div class="head"><span class="tag tag-w">Mejorable</span><b>${esc(f.title)}</b></div>
-        <p>${esc(f.description)}</p>
+        <p>${esc(corto(f.description))}</p>
       </li>`).join('')}</ul>${a11yTodos.length > a11y.length
         ? `<p class="hint" style="margin-top:6px">Se listan las ${a11y.length} primeras de ${a11yTodos.length}; el resto está en el reporte completo de Lighthouse.</p>`
         : ''}`}
@@ -352,8 +356,6 @@ tbody tr:last-child td { border-bottom:none; }
     HTTPS, metadatos, errores de consola, enlaces rastreables. Un 100 no sustituye una revisión manual
     de accesibilidad ni una estrategia de contenidos: significa que no hay nada roto en lo medible.
   </div>
-
-  ${footer(data, 4, TOTAL)}
 </section>
 
 <!-- ═══════════ INFRAESTRUCTURA ═══════════ -->
@@ -398,8 +400,6 @@ tbody tr:last-child td { border-bottom:none; }
     anteriores y detectar regresiones; la experiencia de cada visitante depende además de su dispositivo
     y su conexión.
   </p>
-
-  ${footer(data, 5, TOTAL)}
 </section>
 
 </body></html>`;

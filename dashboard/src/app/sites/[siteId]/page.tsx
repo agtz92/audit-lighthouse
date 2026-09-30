@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   fetchSite, fetchLighthouseTrend, fetchAvailabilityTrend, fetchLastRunPages, fetchSiteRunHistory,
-  type TrendPoint,
+  fetchSiteOverview, type TrendPoint,
 } from '@/lib/queries';
+import { SiteNow } from '@/components/site-now';
+import { PrintButton } from '@/components/print-button';
 import type { TrendDatum } from '@/components/trend-chart';
 import { TrendChart } from '@/components/trend-chart';
 import { RangePicker, parseRange } from '@/components/range-picker';
@@ -53,11 +55,12 @@ export default async function SitePage({
   const site = await fetchSite(siteId);
   if (site === null) notFound();
 
-  const [lighthouse, availability, pages, history] = await Promise.all([
+  const [lighthouse, availability, pages, history, ahora] = await Promise.all([
     fetchLighthouseTrend(siteId, range),
     fetchAvailabilityTrend(siteId, range),
     fetchLastRunPages(siteId),
     fetchSiteRunHistory(siteId, range),
+    fetchSiteOverview(siteId),
   ]);
 
   const disponibilidad: TrendDatum[] = availability.map((p) => ({
@@ -83,6 +86,18 @@ export default async function SitePage({
 
   return (
     <>
+      <div className="print-only print-header">
+        <h1>{site.name}</h1>
+        <div className="meta">
+          <span>{site.url}</span>
+          <span>
+            Corrida del {ultima === undefined ? '—' : fmtDateTime(ultima.startedAt)}
+          </span>
+          <span>Tendencias de los últimos {range} días</span>
+          <span>site-monitor</span>
+        </div>
+      </div>
+
       <div className="card">
         <header>
           <h2>{site.name}</h2>
@@ -104,6 +119,7 @@ export default async function SitePage({
             </a>
           </span>
           <RangePicker basePath={`/sites/${siteId}`} current={range} />
+          <PrintButton />
         </header>
         {ultima !== undefined && (
           <div style={{ padding: '9px 12px', display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '12px' }}>
@@ -132,6 +148,15 @@ export default async function SitePage({
             </span>
           </div>
         )}
+      </div>
+
+      {ahora !== null && <SiteNow row={ahora} />}
+
+      <div className="card">
+        <header>
+          <h2>Tendencias</h2>
+          <span className="sub">últimos {range} días · una gráfica por métrica</span>
+        </header>
       </div>
 
       <div className="charts">
@@ -201,7 +226,7 @@ export default async function SitePage({
         )}
       </div>
 
-      <div className="card">
+      <div className="card page-break">
         <header>
           <h2>Historial de corridas de este sitio</h2>
           <span className="sub">últimos {range} días</span>
@@ -252,7 +277,7 @@ export default async function SitePage({
         )}
       </div>
 
-      <p style={{ fontSize: '11.5px', color: 'var(--ink-muted)' }}>
+      <p className="no-print" style={{ fontSize: '11.5px', color: 'var(--ink-muted)' }}>
         <Link href="/">← Volver a todos los sitios</Link>
       </p>
     </>

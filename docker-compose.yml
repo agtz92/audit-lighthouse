@@ -105,10 +105,15 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-sitemon}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sitemon}
       PDF_DIR: /data/pdfs
+      SITES_FILE: /app/sites.yaml
       TZ: *tz
     volumes:
       # Solo lectura: el dashboard sirve los PDFs, nunca los escribe.
       - ./data/pdfs:/data/pdfs:ro
+      # Con escritura: la pantalla de administración agrega y quita sitios.
+      # Es el único archivo que el dashboard modifica, y lo hace de forma
+      # atómica porque el worker lo lee al empezar cada corrida.
+      - ./sites.yaml:/app/sites.yaml
     ports:
       - "${DASHBOARD_PORT:-8480}:3000"
     deploy:

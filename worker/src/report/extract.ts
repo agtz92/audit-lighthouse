@@ -69,8 +69,12 @@ export function firstSentences(text: string, max = 240): string {
  * incluso cuando el servidor respondió rápido, y sin este filtro el informe le
  * pedía al cliente corregir algo que estaba bien. Un informe que hace eso pierde
  * la confianza de quien lo lee.
+ *
+ * El piso de 150 ms es de relevancia, no de espacio: un ahorro de 60 ms no se
+ * percibe y no se defiende en una presentación. Llenar la lista con esos
+ * entierra los dos o tres cambios que sí mueven la aguja.
  */
-export function opportunities(lhr: Lhr, min = 50): Opportunity[] {
+export function opportunities(lhr: Lhr, min = 150): Opportunity[] {
   const out: Opportunity[] = [];
   for (const audit of Object.values(lhr.audits ?? {})) {
     if (audit?.details?.type !== 'opportunity') continue;

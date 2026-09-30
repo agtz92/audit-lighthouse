@@ -9,6 +9,7 @@
  * que sirva en un script.
  */
 
+import { installProcessGuards } from './lib/guards.js';
 import { parseArgs } from 'node:util';
 import { runAudit } from './run/orchestrator.js';
 import { closeDb } from './db/pool.js';
@@ -32,6 +33,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
 }
 
 async function main(): Promise<void> {
+  installProcessGuards();
   const opts = parseCliArgs(process.argv.slice(2));
 
   const summary = await runAudit({

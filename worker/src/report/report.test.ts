@@ -32,18 +32,31 @@ describe('opportunities', () => {
   test('ordena de mayor a menor ahorro', () => {
     const lhr: Lhr = {
       audits: {
-        a: { title: 'chica', score: 0, details: { type: 'opportunity', overallSavingsMs: 100 } },
+        a: { title: 'chica', score: 0, details: { type: 'opportunity', overallSavingsMs: 300 } },
         b: { title: 'grande', score: 0, details: { type: 'opportunity', overallSavingsMs: 900 } },
       },
     };
     assert.deepEqual(opportunities(lhr).map((o) => o.title), ['grande', 'chica']);
   });
 
-  test('ignora ahorros insignificantes', () => {
+  test('descarta ahorros que no se defienden en una presentación', () => {
+    // El piso es de relevancia, no de espacio: 60 ms no se perciben, y llenar
+    // la lista con ellos entierra los dos o tres cambios que sí importan.
     const lhr: Lhr = {
-      audits: { a: { title: 'x', score: 0, details: { type: 'opportunity', overallSavingsMs: 10 } } },
+      audits: {
+        ruido: { title: 'ruido', score: 0, details: { type: 'opportunity', overallSavingsMs: 60 } },
+        real: { title: 'real', score: 0, details: { type: 'opportunity', overallSavingsMs: 800 } },
+      },
     };
-    assert.deepEqual(opportunities(lhr), []);
+    assert.deepEqual(opportunities(lhr).map((o) => o.title), ['real']);
+  });
+
+  test('el piso se puede ajustar por si el criterio cambia', () => {
+    const lhr: Lhr = {
+      audits: { a: { title: 'x', score: 0, details: { type: 'opportunity', overallSavingsMs: 60 } } },
+    };
+    assert.equal(opportunities(lhr, 50).length, 1);
+    assert.equal(opportunities(lhr).length, 0);
   });
 
   test('ignora auditorías que no son de tipo oportunidad', () => {

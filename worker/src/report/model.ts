@@ -91,19 +91,20 @@ export interface ReportData {
 /**
  * Topes de cada lista del informe.
  *
- * Las hojas son de tamaño fijo (A4), así que el contenido tiene que caber
- * siempre: con 3 hallazgos o con 30, con 5 páginas auditadas o con 50. Sin estos
- * topes el documento se desborda a una hoja extra y el pie queda mintiendo
- * ("Hoja 2 de 5" en un PDF de 6). Lo que se recorta se anuncia en el documento,
- * nunca se esconde.
+ * Existen para que un sitio con cien hallazgos no produzca un documento
+ * inmanejable, NO para forzar un número fijo de hojas: el informe ocupa las que
+ * necesite y Chromium numera las páginas de verdad. Son generosos a propósito —
+ * esconder un hallazgo real para ganar media hoja es el peor intercambio
+ * posible en un informe técnico. Lo que sí se recorta se anuncia en el documento.
  */
 export const LIMITS = {
   priorities: 4,
-  priorityDetailChars: 150,
-  opportunities: 6,
-  accessibilityFindings: 6,
-  otherFindings: 4,
-  pageRows: 14,
+  priorityDetailChars: 260,
+  opportunities: 10,
+  accessibilityFindings: 15,
+  otherFindings: 10,
+  findingDescriptionChars: 320,
+  pageRows: 60,
 } as const;
 
 /** Umbrales oficiales de Core Web Vitals y de los scores de Lighthouse. */

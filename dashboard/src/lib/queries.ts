@@ -123,13 +123,28 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
        WHERE sr.status <> 'running'
        ORDER BY sr.site_id, sr.started_at DESC
     ),
-    lh AS (${LIGHTHOUSE_BY_STRATEGY})
+    lh AS (${LIGHTHOUSE_BY_STRATEGY}),
+    -- Los PDFs se reemplazan en su lugar: el archivo en disco es el de la última
+    -- corrida que ALCANZÓ a generarlo, no necesariamente la última corrida.
+    -- Tomarlos de la última corrida hacía desaparecer los enlaces mientras una
+    -- auditoría estaba en curso, o después de una que falló, aunque el documento
+    -- del día anterior siguiera ahí y sirviera perfectamente.
+    pdf_desktop AS (
+      SELECT DISTINCT ON (site_id) site_id, desktop_pdf_bytes, desktop_pdf_pages, desktop_pdf_generated_at
+        FROM site_runs WHERE desktop_pdf_bytes IS NOT NULL
+       ORDER BY site_id, desktop_pdf_generated_at DESC
+    ),
+    pdf_mobile AS (
+      SELECT DISTINCT ON (site_id) site_id, mobile_pdf_bytes, mobile_pdf_pages, mobile_pdf_generated_at
+        FROM site_runs WHERE mobile_pdf_bytes IS NOT NULL
+       ORDER BY site_id, mobile_pdf_generated_at DESC
+    )
     SELECT s.id AS site_id, s.name, s.url, s.enabled, s.removed_from_yaml_at,
            u.id AS site_run_id, u.status, u.started_at, u.duration_ms,
            u.home_http_status, u.pages_audited, u.pages_failed, u.pages_discovered, u.truncated,
            u.cert_valid, u.cert_days_remaining,
-           u.desktop_pdf_bytes, u.desktop_pdf_pages, u.desktop_pdf_generated_at,
-           u.mobile_pdf_bytes, u.mobile_pdf_pages, u.mobile_pdf_generated_at,
+           pd.desktop_pdf_bytes, pd.desktop_pdf_pages, pd.desktop_pdf_generated_at,
+           pm.mobile_pdf_bytes, pm.mobile_pdf_pages, pm.mobile_pdf_generated_at,
            u.error_category, u.error_message,
            lhu.by_strategy AS current_lh,
            lha.by_strategy AS previous_lh,
@@ -139,6 +154,8 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
       LEFT JOIN anterior a   ON a.site_id = s.id
       LEFT JOIN lh       lhu ON lhu.site_run_id = u.id
       LEFT JOIN lh       lha ON lha.site_run_id = a.id
+      LEFT JOIN pdf_desktop pd ON pd.site_id = s.id
+      LEFT JOIN pdf_mobile  pm ON pm.site_id = s.id
      ORDER BY
        -- Lo que exige atención primero: caídos, luego parciales, luego el resto.
        CASE u.status WHEN 'failed' THEN 0 WHEN 'skipped_timeout' THEN 1 WHEN 'partial' THEN 2 ELSE 3 END,
@@ -444,6 +461,12 @@ export async function fetchSiteRunHistory(siteId: string, days: number): Promise
     errorCategory: r.error_category,
     errorMessage: r.error_message,
   }));
+}
+
+/** Fila del panorama de un sitio: su última corrida y la anterior, para deltas. */
+export async function fetchSiteOverview(siteId: string): Promise<OverviewRow | null> {
+  const todos = await fetchOverview();
+  return todos.find((r) => r.siteId === siteId) ?? null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
