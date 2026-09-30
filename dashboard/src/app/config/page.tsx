@@ -50,7 +50,7 @@ export default async function ConfigPage() {
                 <th>Sitio</th>
                 <th>URL</th>
                 <th>Sitemap</th>
-                <th className="num">Máx. págs.</th>
+                <th>Páginas</th>
                 <th>Última corrida</th>
                 <th>Estado en la lista</th>
                 <th></th>
@@ -62,7 +62,7 @@ export default async function ConfigPage() {
                 return (
                   <tr key={e.id} className={e.enabled ? undefined : 'row-warn'}>
                     <td>
-                      <Link href={`/sites/${e.id}`} style={{ fontWeight: 560 }}>{e.name}</Link>
+                      <Link href={`/config/${e.id}`} style={{ fontWeight: 560 }}>{e.name}</Link>
                       <div style={{ fontSize: '10.5px', color: 'var(--ink-muted)' }}>{e.id}</div>
                     </td>
                     <td className="mono" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -73,12 +73,12 @@ export default async function ConfigPage() {
                         ? <span style={{ color: 'var(--ink-muted)' }}>se descubre</span>
                         : <span className="pill">declarado</span>}
                     </td>
-                    <td className="num">
-                      {e.maxPages ?? (
-                        <span style={{ color: 'var(--ink-muted)' }} title={`hereda el default (${archivo.defaults.maxPages ?? 5})`}>
-                          {archivo.defaults.maxPages ?? 5}
-                        </span>
-                      )}
+                    <td style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                      {e.pages.length > 0
+                        ? <span className="pill" title={e.pages.join('\n')}>{e.pages.length} elegidas</span>
+                        : <span style={{ color: 'var(--ink-muted)' }}>
+                            automáticas · hasta {e.maxPages ?? archivo.defaults.maxPages ?? 5}
+                          </span>}
                     </td>
                     <td>
                       {datos?.status == null
@@ -96,6 +96,7 @@ export default async function ConfigPage() {
                         : <span className="status warning"><span className="dot" aria-hidden="true" />En pausa</span>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
+                      <Link href={`/config/${e.id}`} className="ghost-link">Editar</Link>{' '}
                       <ToggleSite id={e.id} enabled={e.enabled} />{' '}
                       <RemoveSite id={e.id} name={e.name} />
                     </td>
@@ -123,6 +124,10 @@ export default async function ConfigPage() {
           <p style={{ marginTop: 0 }}>
             Todo lo que edites aquí se escribe en <code>sites.yaml</code>, el mismo archivo que puedes
             editar a mano. Los comentarios del archivo se conservan.
+          </p>
+          <p>
+            <strong>Editar</strong> abre el sitio para cambiar su nombre, su URL, su sitemap y,
+            sobre todo, para elegir cuáles de sus páginas se auditan.
           </p>
           <p>
             <strong>Pausar</strong> deja de auditar un sitio pero conserva su historial y sus PDFs.

@@ -77,6 +77,8 @@ export interface SiteRunOutcome {
   pagesFailed: number;
   maxPages: number;
   truncated: boolean;
+  /** Catálogo de URLs descubiertas, para el selector de páginas del dashboard. */
+  candidateUrls: string[];
   homeHttpStatus: number | null;
   cert: CertInfo | null;
   errorCategory: ErrorCategory | null;
@@ -95,15 +97,16 @@ export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome):
        pages_failed        = $6,
        max_pages           = $7,
        truncated           = $8,
-       home_http_status    = $9,
-       cert_valid          = $10,
-       cert_issuer         = $11,
-       cert_valid_from     = $12,
-       cert_valid_to       = $13,
-       cert_days_remaining = $14,
-       cert_error          = $15,
-       error_category      = $16,
-       error_message       = $17
+       candidate_urls      = $9::jsonb,
+       home_http_status    = $10,
+       cert_valid          = $11,
+       cert_issuer         = $12,
+       cert_valid_from     = $13,
+       cert_valid_to       = $14,
+       cert_days_remaining = $15,
+       cert_error          = $16,
+       error_category      = $17,
+       error_message       = $18
      WHERE id = $1`,
     [
       siteRunId,
@@ -114,6 +117,7 @@ export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome):
       outcome.pagesFailed,
       outcome.maxPages,
       outcome.truncated,
+      JSON.stringify(outcome.candidateUrls),
       outcome.homeHttpStatus,
       outcome.cert?.valid ?? null,
       outcome.cert?.issuer ?? null,

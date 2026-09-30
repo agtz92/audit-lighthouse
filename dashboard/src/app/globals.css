@@ -369,6 +369,75 @@ details.errors li { margin-bottom: 3px; }
 button.ghost.danger { border-color: rgba(208,59,59,.4); color: var(--critical); }
 button.ghost.danger:hover { background: var(--critical-wash); }
 
+/* Un enlace que se lee como los botones que tiene al lado en la misma celda. */
+.ghost-link {
+  display: inline-block;
+  border: 1px solid var(--border-strong); color: var(--ink-2);
+  border-radius: 5px; padding: 3px 9px; font-size: 11.5px; text-decoration: none;
+}
+.ghost-link:hover { color: var(--ink); background: var(--surface); text-decoration: none; }
+
+/* ── Selector de páginas a auditar ────────────────────────────────────────────
+   La lista puede traer hasta 200 opciones para un tope de 5, así que se hace
+   desplazable en su propia caja y con filtro: la alternativa era recortar el
+   catálogo y esconderle al lector justo la página que quiere elegir.           */
+.picker .sub { font-size: 11.5px; color: var(--ink-muted); }
+.picker-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12.5px;
+}
+.picker-filtro {
+  font: inherit; font-size: 12px; padding: 4px 8px; min-width: 200px;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  background: var(--plane); color: var(--ink);
+}
+.picker-list {
+  list-style: none; margin: 0 0 12px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  max-height: 340px; overflow-y: auto;
+}
+.picker-list li {
+  display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1.4fr);
+  align-items: baseline; gap: 10px;
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+}
+.picker-list li:last-child { border-bottom: none; }
+.picker-list li.marcada, .picker-list li.fija { background: var(--surface); }
+.picker-list li.vacio {
+  display: block; color: var(--ink-muted); font-size: 12px; padding: 14px 10px;
+}
+.picker-list label { display: flex; align-items: baseline; gap: 7px; cursor: pointer; font-size: 12.5px; }
+.picker-list li.fija label { cursor: default; }
+.picker-list input[type="checkbox"] { margin: 0; flex: none; }
+.picker-list .ruta { overflow-wrap: anywhere; }
+.picker-list .ruta em {
+  font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ink-muted); margin-left: 6px;
+}
+.picker-list a {
+  font-size: 10.5px; color: var(--ink-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.picker-extra { margin-bottom: 12px; }
+.picker-extra label { display: flex; flex-direction: column; gap: 3px; }
+.picker-extra label > span { font-size: 11.5px; font-weight: 560; }
+.picker-extra .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.picker-extra input[type="url"] {
+  font: inherit; font-size: 12.5px; padding: 5px 8px; flex: 1 1 260px;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  background: var(--plane); color: var(--ink);
+}
+.picker-extra small { font-size: 10.5px; color: var(--ink-muted); }
+.picker-extra small.bad { color: var(--critical); }
+.picker-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.picker-actions button[type="submit"] {
+  font: inherit; font-size: 12.5px; font-weight: 560;
+  padding: 6px 14px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--surface);
+}
+.picker-actions button[type="submit"]:disabled { opacity: .55; cursor: progress; }
+.picker-auto { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+
 /* ── Estado actual de un sitio ───────────────────────────────────────────── */
 .now {
   display: grid;

@@ -66,7 +66,7 @@ export function normalizeUrl(raw: string, base?: string, opts: NormalizeOptions 
  * Ignora el esquema y el `www.` porque para un sitio son la misma página:
  * grupohule.com publica su sitemap con URLs en el apex mientras su home vive en
  * www, así que comparando URLs completas la home se auditaría dos veces —una por
- * cada forma— y aparecería duplicada en full.pdf.
+ * cada forma— y se auditaría dos veces.
  *
  * El puerto sí cuenta: un :8443 es otro servicio, no otra escritura del mismo.
  */

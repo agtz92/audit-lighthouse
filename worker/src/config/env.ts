@@ -85,7 +85,7 @@ const envSchema = z.object({
   REPORT_AUTHOR_ROLE: str('Consultor en soluciones de software e inteligencia artificial'),
   REPORT_AUTHOR_CREDENTIALS: str('ITE 2016 · MNA 2027'),
 
-  SITES_FILE: str('/app/sites.yaml'),
+  SITES_FILE: str('/app/config/sites.yaml'),
   PDF_DIR: str('/data/pdfs'),
   // Perfil de compresión de Ghostscript: screen (72 dpi) | ebook (150) |
   // printer (300) | none. El texto nunca se rasteriza; solo bajan las imágenes.

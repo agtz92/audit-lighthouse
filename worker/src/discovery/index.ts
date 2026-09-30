@@ -13,12 +13,27 @@ import { discoverSitemapsFromRobots } from './robots.js';
 import { crawlInternalLinks } from './crawl.js';
 
 /** Coincide con el enum discovery_method de la base de datos. */
-export type DiscoveryMethod = 'sitemap' | 'robots' | 'crawl' | 'home_only' | 'none';
+export type DiscoveryMethod = 'manual' | 'sitemap' | 'robots' | 'crawl' | 'home_only' | 'none';
+
+/**
+ * Cuántas URLs del catálogo se conservan para ofrecerlas en el dashboard.
+ *
+ * No es un límite de auditoría —eso es maxPages—, es cuántas opciones tiene
+ * enfrente quien va a escoger. Un sitio con 348 URLs no gana nada ofreciéndolas
+ * todas, y el catálogo viaja a la base en cada corrida.
+ */
+export const CANDIDATE_CAP = 200;
 
 export interface Discovery {
   method: DiscoveryMethod;
   /** URLs a auditar, con la home siempre primero, ya recortadas a maxPages. */
   urls: string[];
+  /**
+   * Catálogo de lo que el sitio ofrece, antes del recorte a maxPages y recortado
+   * solo a CANDIDATE_CAP. Es de donde el dashboard saca las opciones a elegir;
+   * no es lo que se auditó.
+   */
+  candidates: string[];
   /** Cuántas se encontraron antes de recortar. Alimenta pages_discovered. */
   discovered: number;
   truncated: boolean;
@@ -36,14 +51,14 @@ export interface FinalizeOptions {
  * recortada. Separado del I/O para poder probarlo.
  *
  * La home va primero porque es la única URL que recibe Lighthouse y la que va
- * en home.pdf; si el recorte por maxPages la dejara fuera, el sitio perdería sus
- * dos métricas más importantes.
+ * en los dos informes; si el recorte por maxPages la dejara fuera, el sitio
+ * perdería sus métricas más importantes.
  */
 export function finalizeUrlList(
   homeUrl: string,
   candidates: string[],
   opts: FinalizeOptions,
-): { urls: string[]; discovered: number; truncated: boolean } {
+): { urls: string[]; candidates: string[]; discovered: number; truncated: boolean } {
   const home = normalizeUrl(homeUrl) ?? homeUrl;
   const excluded = (u: string): boolean => opts.exclude.some((p) => u.includes(p));
 
@@ -63,8 +78,41 @@ export function finalizeUrlList(
   const all = [home, ...rest];
   return {
     urls: all.slice(0, opts.maxPages),
+    candidates: all.slice(0, CANDIDATE_CAP),
     discovered: all.length,
     truncated: all.length > opts.maxPages,
+  };
+}
+
+/** Lo que decidió el descubrimiento automático, ya con la cosecha aplicada. */
+export interface AutomaticList {
+  urls: string[];
+  method: DiscoveryMethod;
+  truncated: boolean;
+}
+
+/**
+ * Decide qué páginas se auditan: la selección manual del sitio si la tiene, o lo
+ * que encontró el automático.
+ *
+ * Las primeras URLs de un sitemap son un accidente del orden del archivo. Cuando
+ * alguien elige a mano, esas ganan —pero se siguen pasando por finalizeUrlList
+ * para que la home quede primero: es la única URL que recibe Lighthouse y la que
+ * encabeza el informe, así que no puede faltar ni salir repetida si alguien la
+ * eligió explícitamente.
+ */
+export function chooseAuditList(
+  site: FinalizeOptions & { url: string; pages: string[] },
+  automatic: AutomaticList,
+): AutomaticList {
+  if (site.pages.length === 0) return automatic;
+  const { urls } = finalizeUrlList(site.url, site.pages, site);
+  return {
+    urls,
+    method: 'manual',
+    // truncated significa «la muestra quedó incompleta por el tope». Con una
+    // lista elegida a mano no aplica: está completa por definición.
+    truncated: false,
   };
 }
 
@@ -86,14 +134,14 @@ export async function discoverPages(site: ResolvedSite, opts: DiscoverOptions): 
     try {
       const result = await collectSitemapUrls(sitemapUrl, site.url, fetchOpts);
       if (result.urls.length === 0) return null;
-      const { urls, discovered, truncated } = finalizeUrlList(site.url, result.urls, site);
+      const { urls, candidates, discovered, truncated } = finalizeUrlList(site.url, result.urls, site);
       opts.log.debug('sitemap leído', {
         sitemap: sitemapUrl,
         documentos: result.documents,
         urls: result.urls.length,
         descartadas: result.rejected,
       });
-      return { method, urls, discovered, truncated, source: sitemapUrl };
+      return { method, urls, candidates, discovered, truncated, source: sitemapUrl };
     } catch (err) {
       opts.log.debug('sitemap no utilizable', {
         sitemap: sitemapUrl,
@@ -127,15 +175,21 @@ export async function discoverPages(site: ResolvedSite, opts: DiscoverOptions): 
   const crawled = await crawlInternalLinks(site.url, {
     ...fetchOpts,
     maxPages: site.maxPages,
+    // Se junta el catálogo completo para poder ofrecerlo a elegir, pero el
+    // presupuesto de descargas apenas sube: un sitio sin sitemap ya es el caso
+    // lento del descubrimiento y no queremos empeorarlo por el selector.
+    collect: CANDIDATE_CAP,
+    maxFetches: Math.max(site.maxPages, 8),
     exclude: site.exclude,
   });
-  const { urls, discovered, truncated } = finalizeUrlList(site.url, crawled.urls, site);
+  const { urls, candidates, discovered, truncated } = finalizeUrlList(site.url, crawled.urls, site);
 
   return {
     // Solo la home significa que el crawl no encontró links: probablemente el
     // sitio los pinta con JavaScript, o la home no respondió.
     method: urls.length <= 1 ? 'home_only' : 'crawl',
     urls,
+    candidates,
     discovered,
     truncated,
     source: 'crawl',

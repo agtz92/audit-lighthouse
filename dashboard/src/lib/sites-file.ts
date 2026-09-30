@@ -13,10 +13,10 @@
  */
 
 import { readFile, writeFile, rename, rm } from 'node:fs/promises';
-import { parseDocument, type Document, type YAMLSeq, type YAMLMap } from 'yaml';
+import { parseDocument, isSeq, type Document, type YAMLSeq, type YAMLMap } from 'yaml';
 import { z } from 'zod';
 
-export const SITES_FILE = process.env.SITES_FILE ?? '/app/sites.yaml';
+export const SITES_FILE = process.env.SITES_FILE ?? '/app/config/sites.yaml';
 
 /** Mismo contrato que valida el worker: si no pasa aquí, la corrida fallaría. */
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
@@ -69,6 +69,36 @@ export const siteInputSchema = z.object({
 
 export type SiteInput = z.infer<typeof siteInputSchema>;
 
+/**
+ * Edición de un sitio existente. Mismos campos que el alta menos el
+ * identificador, que es inmutable: nombra la carpeta de sus PDFs y es la llave de
+ * su historial, así que cambiarlo equivale a crear otro sitio desde cero. La
+ * acción lo recibe igual, pero para encontrar el nodo, no para escribirlo.
+ */
+export const siteEditSchema = siteInputSchema;
+
+/** URL de una página elegida a mano. Mismo contrato que valida el worker. */
+const pageUrl = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((v) => {
+    try {
+      const u = new URL(v);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'Cada página debe ser una URL http:// o https:// completa');
+
+export const pagesInputSchema = z.object({
+  id: z.string().trim().min(1),
+  /** Vacío borra la selección: el sitio vuelve a descubrimiento automático. */
+  pages: z.array(pageUrl).max(50, 'No más de 50 páginas elegidas'),
+});
+
+export type PagesInput = z.infer<typeof pagesInputSchema>;
+
 export interface SiteEntry {
   id: string;
   name: string;
@@ -77,6 +107,8 @@ export interface SiteEntry {
   enabled: boolean;
   /** null cuando hereda el valor de `defaults`. */
   maxPages: number | null;
+  /** Vacío = las páginas las elige el descubrimiento automático. */
+  pages: string[];
 }
 
 export interface SitesFile {
@@ -118,6 +150,7 @@ function entryOf(node: unknown): SiteEntry | null {
   const id = map.get('id');
   if (typeof id !== 'string') return null;
   const maxPages = map.get('maxPages');
+  const pages = map.get('pages');
   return {
     id,
     name: String(map.get('name') ?? id),
@@ -125,6 +158,9 @@ function entryOf(node: unknown): SiteEntry | null {
     sitemap: typeof map.get('sitemap') === 'string' ? String(map.get('sitemap')) : undefined,
     enabled: map.get('enabled') !== false,
     maxPages: typeof maxPages === 'number' ? maxPages : null,
+    // toJSON() devuelve strings planos; los nodos crudos de `yaml` no se pueden
+    // pasar a un componente de React.
+    pages: isSeq(pages) ? (pages.toJSON() as unknown[]).filter((u): u is string => typeof u === 'string') : [],
   };
 }
 
@@ -178,6 +214,87 @@ export async function addSite(input: SiteInput): Promise<void> {
   if (input.maxPages !== undefined) nodo.maxPages = input.maxPages;
 
   seq.add(doc.createNode(nodo));
+  await saveDocument(doc);
+}
+
+/**
+ * Orden canónico de las llaves de un sitio. Importa porque sites.yaml se lee y se
+ * edita a mano: `YAMLMap.set` pega las llaves nuevas al final, así que agregar un
+ * sitemap desde el dashboard lo dejaría después de `pages` y el archivo se iría
+ * desordenando con cada edición.
+ */
+const ORDEN_LLAVES = ['id', 'name', 'url', 'sitemap', 'enabled', 'maxPages', 'timeoutMs', 'viewport', 'waitUntil', 'exclude', 'pages'];
+
+/** Asigna una llave respetando ORDEN_LLAVES cuando hay que crearla. */
+function setOrdenado(doc: Document, map: YAMLMap, key: string, value: unknown): void {
+  if (map.has(key)) {
+    map.set(key, doc.createNode(value));
+    return;
+  }
+  const destino = ORDEN_LLAVES.indexOf(key);
+  const par = doc.createPair(key, value);
+  // Se inserta antes de la primera llave que deba ir después de esta. Una llave
+  // que no esté en la lista (algo que alguien agregó a mano) no mueve nada: se
+  // queda donde está y la nueva acaba al final.
+  const i = map.items.findIndex((item) => {
+    const k = String((item.key as { value?: unknown })?.value ?? '');
+    const pos = ORDEN_LLAVES.indexOf(k);
+    return pos !== -1 && pos > destino;
+  });
+  if (i === -1) map.items.push(par);
+  else map.items.splice(i, 0, par);
+}
+
+function nodoDe(seq: YAMLSeq, id: string): YAMLMap {
+  const i = findIndex(seq, id);
+  if (i === -1) throw new SitesFileError(`No hay ningún sitio con el identificador "${id}".`);
+  return seq.get(i) as YAMLMap;
+}
+
+/**
+ * Edita un sitio que ya existe. El identificador no se toca: solo sirve para
+ * encontrar el nodo.
+ *
+ * Los campos opcionales que llegan vacíos se BORRAN del YAML en lugar de
+ * escribirse como null. Dejar `sitemap: null` haría fallar la validación del
+ * worker y tumbaría la corrida completa; borrar la llave es lo que de verdad
+ * significa «descúbrelo solo», y un `maxPages` ausente es lo que hace visible que
+ * el sitio hereda el default.
+ */
+export async function editSite(input: SiteInput): Promise<void> {
+  const doc = await loadDocument();
+  const seq = sitesSeq(doc);
+  const map = nodoDe(seq, input.id);
+
+  setOrdenado(doc, map, 'name', input.name);
+  setOrdenado(doc, map, 'url', input.url);
+  setOrdenado(doc, map, 'enabled', input.enabled);
+
+  if (input.sitemap === undefined) map.delete('sitemap');
+  else setOrdenado(doc, map, 'sitemap', input.sitemap);
+
+  if (input.maxPages === undefined) map.delete('maxPages');
+  else setOrdenado(doc, map, 'maxPages', input.maxPages);
+
+  await saveDocument(doc);
+}
+
+/**
+ * Guarda las páginas que se auditarán. Una lista vacía borra la llave, que es
+ * como se vuelve al descubrimiento automático: el worker lee `pages` ausente y
+ * `pages: []` de la misma forma, pero un archivo sin la llave dice lo que pasa.
+ */
+export async function setSitePages(input: PagesInput): Promise<void> {
+  const doc = await loadDocument();
+  const seq = sitesSeq(doc);
+  const map = nodoDe(seq, input.id);
+
+  // Se deduplica conservando el orden: es el que verá el informe.
+  const unicas = [...new Set(input.pages)];
+
+  if (unicas.length === 0) map.delete('pages');
+  else setOrdenado(doc, map, 'pages', unicas);
+
   await saveDocument(doc);
 }
 

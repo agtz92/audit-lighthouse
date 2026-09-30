@@ -71,6 +71,7 @@ export const ERROR_LABELS: Record<string, string> = {
 };
 
 export const DISCOVERY_LABELS: Record<string, string> = {
+  manual: 'páginas elegidas',
   sitemap: 'sitemap',
   robots: 'robots.txt',
   crawl: 'crawl de links',

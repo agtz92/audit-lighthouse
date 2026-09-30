@@ -107,6 +107,12 @@ export default async function SitePage({
             </a>
             {' · '}
             {site.removedFromYaml ? 'fuera del sites.yaml' : site.enabled ? 'habilitado' : 'deshabilitado'}
+            {!site.removedFromYaml && (
+              <>
+                {' · '}
+                <Link href={`/config/${siteId}`} className="no-print">configurar</Link>
+              </>
+            )}
           </span>
           <div style={{ flex: 1 }} />
           <span className="dl">

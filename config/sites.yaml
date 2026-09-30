@@ -5,17 +5,24 @@
 #   id       slug estable. Se usa para el nombre de la carpeta de PDFs y como
 #            llave en la base de datos. Si lo cambias pierdes el historial del
 #            sitio, así que elígelo una vez y déjalo quieto.
-#   url      URL principal. Es la única que recibe Lighthouse y la que va en home.pdf.
+#   url      URL principal. Es la única que recibe Lighthouse, así que es la que
+#            encabeza los dos informes del sitio (escritorio y móvil).
 #   sitemap  opcional. Si no lo pones se busca /sitemap.xml y luego la directiva
 #            Sitemap: de robots.txt; si tampoco hay, se crawlean links internos
 #            desde la home.
 #   exclude  patrones de URL (subcadena) que se ignoran al descubrir páginas.
+#   pages    opcional. Las páginas que se auditan, elegidas a mano. Si está, el
+#            descubrimiento sigue corriendo (para mantener el catálogo de
+#            opciones al día) pero deja de decidir: se audita esta lista, con la
+#            URL principal siempre incluida y hasta maxPages en total. Quítala
+#            para volver al automático. Se edita desde el dashboard, en
+#            Configuración -> el sitio -> Páginas que se auditan.
 # ─────────────────────────────────────────────────────────────────────────────
 
 defaults:
   # 5 páginas por sitio: la corrida completa de 20 sitios tiene que caber en la
-  # ventana de las 6am. full.pdf es entonces una MUESTRA de 5 páginas, no el
-  # sitio completo, y el índice del PDF lo dice explícitamente.
+  # ventana de las 6am. Es una MUESTRA del sitio, no el sitio completo. Cuáles 5
+  # las decide el descubrimiento, salvo que el sitio declare `pages`.
   maxPages: 5
   timeoutMs: 30000
   viewport: { width: 1440, height: 900 }
@@ -26,7 +33,7 @@ sites:
   - id: corthw
     name: Cort HW
     url: https://www.corthw.com
-    sitemap: https://www.corthw.com/sitemap.xml   # 32 URLs
+    sitemap: https://www.corthw.com/sitemap.xml # 32 URLs
     enabled: true
 
   - id: matmarkt

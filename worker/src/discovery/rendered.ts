@@ -21,6 +21,13 @@ const NETWORK_SETTLE_MS = 8000;
 export interface RenderedHarvestOptions {
   /** Cuántas páginas se cargan en el navegador para buscar links. */
   maxFetches?: number;
+  /**
+   * Cuántas URLs se juntan. Por default maxPages del sitio; el descubrimiento
+   * pide más para poder ofrecerlas a elegir. Leer los anchors de una página que
+   * ya se cargó no cuesta nada extra, así que este tope es independiente del de
+   * cargas, que es el caro.
+   */
+  collect?: number;
   signal?: AbortSignal;
 }
 
@@ -35,6 +42,7 @@ export async function harvestRenderedLinks(
   opts: RenderedHarvestOptions = {},
 ): Promise<RenderedHarvest> {
   const maxFetches = opts.maxFetches ?? 5;
+  const collect = Math.max(opts.collect ?? site.maxPages, site.maxPages);
   const home = normalizeUrl(site.url) ?? site.url;
 
   const seen = new Set<string>([canonicalKey(home)]);
@@ -42,7 +50,7 @@ export async function harvestRenderedLinks(
   const queue: string[] = [home];
   let fetches = 0;
 
-  while (queue.length > 0 && fetches < maxFetches && order.length < site.maxPages) {
+  while (queue.length > 0 && fetches < maxFetches && order.length < collect) {
     const current = queue.shift();
     if (current === undefined) break;
     if (opts.signal?.aborted === true) break;
@@ -65,7 +73,7 @@ export async function harvestRenderedLinks(
       );
 
       for (const href of hrefs) {
-        if (order.length >= site.maxPages) break;
+        if (order.length >= collect) break;
         const url = normalizeUrl(href);
         if (url === null) continue;
         const key = canonicalKey(url);

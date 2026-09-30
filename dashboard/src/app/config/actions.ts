@@ -11,7 +11,17 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import { addSite, removeSite, setSiteEnabled, siteInputSchema, SitesFileError } from '@/lib/sites-file';
+import {
+  addSite,
+  editSite,
+  removeSite,
+  setSiteEnabled,
+  setSitePages,
+  siteInputSchema,
+  siteEditSchema,
+  pagesInputSchema,
+  SitesFileError,
+} from '@/lib/sites-file';
 
 export interface ActionResult {
   ok: boolean;
@@ -25,24 +35,30 @@ function fail(err: unknown): ActionResult {
   return { ok: false, message: err instanceof Error ? err.message : String(err) };
 }
 
-export async function crearSitio(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
-  const parsed = siteInputSchema.safeParse({
+/** Los campos del sitio tal como los manda cualquiera de los dos formularios. */
+function camposDe(form: FormData): Record<string, unknown> {
+  return {
     id: form.get('id'),
     name: form.get('name'),
     url: form.get('url'),
     sitemap: form.get('sitemap'),
     maxPages: form.get('maxPages'),
     enabled: form.get('enabled') === 'on',
-  });
+  };
+}
 
-  if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const campo = String(issue.path[0] ?? '');
-      fieldErrors[campo] ??= issue.message;
-    }
-    return { ok: false, message: 'Revisa los campos marcados.', fieldErrors };
+function porCampo(error: { issues: Array<{ path: PropertyKey[]; message: string }> }): ActionResult {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const campo = String(issue.path[0] ?? '');
+    fieldErrors[campo] ??= issue.message;
   }
+  return { ok: false, message: 'Revisa los campos marcados.', fieldErrors };
+}
+
+export async function crearSitio(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const parsed = siteInputSchema.safeParse(camposDe(form));
+  if (!parsed.success) return porCampo(parsed.error);
 
   try {
     await addSite(parsed.data);
@@ -84,4 +100,59 @@ export async function alternarSitio(_prev: ActionResult | null, form: FormData):
   revalidatePath('/config');
   revalidatePath('/');
   return { ok: true, message: enabled ? `"${id}" quedó habilitado.` : `"${id}" quedó en pausa: deja de auditarse pero conserva su historial.` };
+}
+
+export async function editarSitio(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const parsed = siteEditSchema.safeParse(camposDe(form));
+  if (!parsed.success) return porCampo(parsed.error);
+
+  try {
+    await editSite(parsed.data);
+  } catch (err) {
+    return fail(err);
+  }
+
+  revalidatePath('/config');
+  revalidatePath(`/config/${parsed.data.id}`);
+  revalidatePath('/');
+  revalidatePath(`/sites/${parsed.data.id}`);
+  return {
+    ok: true,
+    message: `"${parsed.data.name}" quedó actualizado. Los cambios aplican en la próxima corrida.`,
+  };
+}
+
+/**
+ * Guarda las páginas elegidas para un sitio.
+ *
+ * Llegan como varios campos "pages" del mismo formulario, que es lo que manda un
+ * grupo de checkboxes. Ninguno marcado es una petición válida y explícita: quiere
+ * decir «vuelve al descubrimiento automático».
+ */
+export async function guardarPaginas(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const parsed = pagesInputSchema.safeParse({
+    id: form.get('id'),
+    pages: form.getAll('pages').map(String).filter((u) => u !== ''),
+  });
+
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'La selección no es válida.' };
+  }
+
+  try {
+    await setSitePages(parsed.data);
+  } catch (err) {
+    return fail(err);
+  }
+
+  revalidatePath('/config');
+  revalidatePath(`/config/${parsed.data.id}`);
+  revalidatePath(`/sites/${parsed.data.id}`);
+  return {
+    ok: true,
+    message:
+      parsed.data.pages.length === 0
+        ? 'Sin páginas elegidas: el sitio vuelve a descubrirlas solo en la próxima corrida.'
+        : `${parsed.data.pages.length} página(s) elegidas. Se auditarán en la próxima corrida.`,
+  };
 }

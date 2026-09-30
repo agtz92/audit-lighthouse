@@ -249,6 +249,9 @@ async function skipSite(site: ResolvedSite, runId: number | null, elapsedMs: num
       pagesFailed: 0,
       maxPages: site.maxPages,
       truncated: false,
+      // Nunca arrancó, así que no descubrió nada. El dashboard busca el catálogo
+      // en la última corrida que sí tenga uno, no en la más reciente sin más.
+      candidateUrls: [],
       homeHttpStatus: null,
       cert: null,
       errorCategory: 'timeout',
@@ -265,6 +268,7 @@ async function skipSite(site: ResolvedSite, runId: number | null, elapsedMs: num
     pagesFailed: 0,
     truncated: false,
     abortedByDeadline: true,
+    candidateUrls: [],
     homeHttpStatus: null,
     cert: null,
     errorCategory: 'timeout',

@@ -103,7 +103,7 @@ async function main(): Promise<void> {
         status: snap.status ?? 'ok',
         discovery: null,
         pagesDiscovered: 0, pagesAudited: 0, pagesFailed: 0,
-        truncated: false, abortedByDeadline: false,
+        truncated: false, abortedByDeadline: false, candidateUrls: [],
         homeHttpStatus: snap.homeHttpStatus,
         cert: snap.certDaysRemaining === null ? null : {
           valid: true, issuer: null, validFrom: null, validTo: null,

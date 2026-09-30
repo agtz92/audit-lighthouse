@@ -116,14 +116,24 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
        WHERE status <> 'running'
        ORDER BY site_id, started_at DESC
     ),
-    anterior AS (
-      SELECT DISTINCT ON (sr.site_id) sr.*
-        FROM site_runs sr
-        JOIN ultima u ON u.site_id = sr.site_id AND sr.started_at < u.started_at
-       WHERE sr.status <> 'running'
-       ORDER BY sr.site_id, sr.started_at DESC
-    ),
     lh AS (${LIGHTHOUSE_BY_STRATEGY}),
+    -- Las métricas se toman de la última corrida que MIDIÓ, no de la última
+    -- corrida. Son dos cosas distintas y confundirlas vaciaba el panorama:
+    -- Lighthouse va en una segunda fase que corre cuando ya se auditaron todos
+    -- los sitios, así que durante una corrida cada sitio ya terminado tenía su
+    -- fila nueva sin mediciones todavía, y las columnas de desempeño aparecían
+    -- en blanco durante media hora. Lo mismo pasaba después de una corrida
+    -- fallida, borrando de la vista una medición del día anterior que seguía
+    -- siendo la mejor información disponible.
+    --
+    -- Se numeran hacia atrás: la 1 es la medición vigente y la 2 la anterior,
+    -- que es contra la que se calculan las variaciones.
+    lh_corridas AS (
+      SELECT sr.site_id, sr.id AS site_run_id, sr.started_at,
+             row_number() OVER (PARTITION BY sr.site_id ORDER BY sr.started_at DESC) AS n
+        FROM site_runs sr
+       WHERE EXISTS (SELECT 1 FROM lighthouse_results lr WHERE lr.site_run_id = sr.id)
+    ),
     -- Los PDFs se reemplazan en su lugar: el archivo en disco es el de la última
     -- corrida que ALCANZÓ a generarlo, no necesariamente la última corrida.
     -- Tomarlos de la última corrida hacía desaparecer los enlaces mientras una
@@ -148,12 +158,13 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
            u.error_category, u.error_message,
            lhu.by_strategy AS current_lh,
            lha.by_strategy AS previous_lh,
-           a.started_at    AS previous_at
+           lc2.started_at  AS previous_at
       FROM sites s
       LEFT JOIN ultima   u   ON u.site_id = s.id
-      LEFT JOIN anterior a   ON a.site_id = s.id
-      LEFT JOIN lh       lhu ON lhu.site_run_id = u.id
-      LEFT JOIN lh       lha ON lha.site_run_id = a.id
+      LEFT JOIN lh_corridas lc1 ON lc1.site_id = s.id AND lc1.n = 1
+      LEFT JOIN lh_corridas lc2 ON lc2.site_id = s.id AND lc2.n = 2
+      LEFT JOIN lh       lhu ON lhu.site_run_id = lc1.site_run_id
+      LEFT JOIN lh       lha ON lha.site_run_id = lc2.site_run_id
       LEFT JOIN pdf_desktop pd ON pd.site_id = s.id
       LEFT JOIN pdf_mobile  pm ON pm.site_id = s.id
      ORDER BY
@@ -412,6 +423,60 @@ export async function fetchLastRunPages(siteId: string): Promise<PageRow[]> {
     attemptCount: r.attempt_count,
     degradedWait: r.degraded_wait,
   }));
+}
+
+export interface PageOptions {
+  /** URLs que el sitio ofrece, de la última corrida que descubrió algo. */
+  catalog: string[];
+  catalogAt: Date | null;
+  /** Las que el sistema auditó por su cuenta la última vez. */
+  audited: string[];
+  auditedAt: Date | null;
+  /** Cómo se armó esa última lista: 'manual' significa que ya la eligió alguien. */
+  discovery: string | null;
+}
+
+/**
+ * Opciones para el selector de páginas de un sitio.
+ *
+ * El catálogo y las auditadas se buscan en corridas distintas a propósito. Una
+ * corrida que falló por un 503 no descubre nada y no audita nada, y tomar «la
+ * última corrida» sin más dejaría el selector vacío justo en los sitios donde más
+ * se quiere revisar la selección. Cada dato viene de la última corrida que sí lo
+ * tiene.
+ */
+export async function fetchSitePageOptions(siteId: string): Promise<PageOptions> {
+  const catalogo = await query<{ urls: string[]; started_at: Date }>(
+    `SELECT candidate_urls AS urls, started_at
+       FROM site_runs
+      WHERE site_id = $1 AND jsonb_array_length(candidate_urls) > 0
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    [siteId],
+  );
+
+  const auditadas = await query<{ url: string; started_at: Date; discovery: string | null }>(
+    `WITH ultima AS (
+       SELECT id, started_at, discovery
+         FROM site_runs
+        WHERE site_id = $1 AND pages_audited > 0
+        ORDER BY started_at DESC
+        LIMIT 1
+     )
+     SELECT pr.url, u.started_at, u.discovery
+       FROM page_results pr
+       JOIN ultima u ON u.id = pr.site_run_id
+      ORDER BY pr.is_home DESC, pr.id`,
+    [siteId],
+  );
+
+  return {
+    catalog: catalogo[0]?.urls ?? [],
+    catalogAt: catalogo[0]?.started_at ?? null,
+    audited: auditadas.map((r) => r.url),
+    auditedAt: auditadas[0]?.started_at ?? null,
+    discovery: auditadas[0]?.discovery ?? null,
+  };
 }
 
 export interface SiteRunHistoryRow {

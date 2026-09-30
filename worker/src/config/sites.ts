@@ -56,6 +56,15 @@ const siteSchema = tunablesSchema.extend({
   url: httpUrl,
   sitemap: httpUrl.optional(),
   enabled: z.boolean().default(true),
+  // Selección manual de páginas. No vive en `tunables` a propósito: una lista de
+  // URLs concretas no puede heredarse desde `defaults`, solo pertenece a un sitio.
+  //
+  // Cuando trae elementos, esas son las páginas que se auditan y el
+  // descubrimiento automático deja de decidir (aunque sigue corriendo, para
+  // mantener fresco el catálogo de opciones). Vacía o ausente equivale a
+  // automático. No se exige que sean del mismo host: un sitio puede querer medir
+  // su blog en un subdominio.
+  pages: z.array(httpUrl).max(50).optional(),
 });
 
 const fileSchema = z.strictObject({
@@ -75,6 +84,8 @@ export interface ResolvedSite {
   viewport: { width: number; height: number };
   waitUntil: WaitUntil;
   exclude: string[];
+  /** Vacío = las páginas las elige el descubrimiento automático. */
+  pages: string[];
 }
 
 /** Defaults de los defaults, cuando el YAML no dice nada. */
@@ -141,6 +152,9 @@ export function parseSitesConfig(raw: string, source = 'sites.yaml'): ResolvedSi
     viewport: site.viewport ?? defaults.viewport ?? FALLBACK.viewport,
     waitUntil: site.waitUntil ?? defaults.waitUntil ?? FALLBACK.waitUntil,
     exclude: site.exclude ?? defaults.exclude ?? FALLBACK.exclude,
+    // Una lista vacía se lee como ausente: es lo que queda en el YAML al
+    // deseleccionar todo desde el dashboard, y significa «vuelve a automático».
+    pages: site.pages ?? [],
   }));
 }
 

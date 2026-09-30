@@ -45,10 +45,12 @@ bloque `ports` del servicio `db` en `docker-compose.yml` (usa 5434, porque 5432 
 
 ---
 
-## Agregar o quitar un sitio
+## Administrar los sitios
 
-Edita `sites.yaml`. **No hace falta reiniciar nada**: el archivo se lee completo
-en cada corrida.
+Desde el dashboard, en **Sitios**: agregar, quitar, pausar, y entrando a cada uno
+editar sus datos y elegir qué páginas se auditan. Todo se escribe en
+`config/sites.yaml`, que también puedes editar a mano. **No hace falta reiniciar
+nada**: el archivo se lee completo en cada corrida.
 
 ```yaml
 sites:
@@ -60,7 +62,23 @@ sites:
     maxPages: 50            # opcional, sobrescribe defaults
     exclude:                # opcional: subcadenas de URL a ignorar
       - "/blog/tag/"
+    pages:                  # opcional: las páginas a auditar, elegidas a mano
+      - https://www.misitio.com/productos
 ```
+
+Vive en su propio directorio, y no suelto en la raíz, porque el dashboard lo
+reescribe de forma atómica (temporal + `rename`) y `rename` sobre un bind mount
+de archivo devuelve `EBUSY`: hay que montar el directorio. `config/` es además lo
+único que el dashboard puede escribir.
+
+### Elegir las páginas que se auditan
+
+Sin `pages`, cada sitio audita las primeras `maxPages` URLs de su sitemap, que es
+el orden del archivo y no una decisión. Con `pages`, se auditan esas —con la URL
+principal siempre incluida, porque es la única que recibe Lighthouse—. El
+descubrimiento sigue corriendo para mantener al día el catálogo de opciones que
+ofrece el dashboard, así que una página nueva del sitio aparece como opción al
+día siguiente aunque la selección esté fija.
 
 El `id` es permanente: cambiarlo equivale a crear un sitio nuevo y perder su
 historial. El YAML se valida con Zod y es estricto con las llaves desconocidas —

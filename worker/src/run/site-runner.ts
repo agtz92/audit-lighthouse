@@ -15,7 +15,13 @@ import type { Deadline } from '../lib/deadline.js';
 import { launchBrowser, newSiteContext, cdpPortForSlot } from '../audit/browser.js';
 import { auditPage, type ErrorCategory, type PageMetrics } from '../audit/page-metrics.js';
 import { checkCertificate, type CertInfo } from '../audit/tls.js';
-import { discoverPages, finalizeUrlList, type DiscoveryMethod } from '../discovery/index.js';
+import {
+  discoverPages,
+  finalizeUrlList,
+  chooseAuditList,
+  CANDIDATE_CAP,
+  type DiscoveryMethod,
+} from '../discovery/index.js';
 import { harvestRenderedLinks } from '../discovery/rendered.js';
 import { startSiteRun, finishSiteRun, type SiteRunStatus } from '../db/runs.js';
 import { insertPageResults, type PageRow } from '../db/results.js';
@@ -56,6 +62,8 @@ export interface SiteRunResult {
   pages: PageRow[];
   /** URL principal, que es la única que recibe Lighthouse en la segunda fase. */
   homeUrl: string | null;
+  /** Catálogo de URLs que el sitio ofrece, para el selector de páginas del dashboard. */
+  candidateUrls: string[];
 }
 
 export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<SiteRunResult> {
@@ -89,6 +97,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     cert: null as CertInfo | null,
     pages: [] as PageRow[],
     homeUrl: null as string | null,
+    candidateUrls: [] as string[],
   };
 
   let browser: Browser | undefined;
@@ -128,28 +137,58 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     // complementa leyendo el DOM ya renderizado en el navegador que de todas
     // formas acabamos de abrir.
     let urls = discovery.urls;
+    let candidatas = discovery.candidates;
     if ((discovery.method === 'crawl' || discovery.method === 'home_only') && !siteExpired()) {
       // La cosecha es opcional: si tarda, se sigue con lo que ya se descubrió.
       const harvest = await withTimeoutOr(
-        harvestRenderedLinks(context, site, { signal: deps.deadline.signal }),
+        harvestRenderedLinks(context, site, { collect: CANDIDATE_CAP, signal: deps.deadline.signal }),
         Math.min(60_000, siteRemainingMs()),
         'cosecha de links renderizados',
         { urls: [] as string[], fetches: 0 },
         (err) => log.warn('cosecha de links cortada por tiempo', { motivo: err.message }),
       );
-      if (harvest.urls.length > urls.length) {
-        const merged = finalizeUrlList(site.url, [...urls.slice(1), ...harvest.urls], site);
+      // La unión se hace sobre el catálogo completo, no sobre las urls ya
+      // recortadas a maxPages: lo cosechado sirve tanto para auditar como para
+      // ofrecerlo a elegir, y recortar antes de unir tiraba el resto del catálogo.
+      // Como el catálogo va primero, esto solo puede agregar: el orden de las
+      // primeras páginas no cambia si el crawl ya había encontrado suficientes.
+      if (harvest.urls.length > 1) {
+        const merged = finalizeUrlList(site.url, [...candidatas.slice(1), ...harvest.urls], site);
         log.info('links cosechados del DOM renderizado', {
-          antes: urls.length,
-          despues: merged.urls.length,
+          antes: candidatas.length,
+          despues: merged.candidates.length,
           cargas: harvest.fetches,
         });
         urls = merged.urls;
+        candidatas = merged.candidates;
         base.discovery = 'crawl';
         base.pagesDiscovered = merged.discovered;
         base.truncated = merged.truncated;
       }
     }
+
+    // El catálogo se guarda aunque la selección sea manual: es lo que el
+    // dashboard ofrece a elegir, y así un sitio que publica páginas nuevas las
+    // ofrece mañana aun con su selección congelada hoy.
+    base.candidateUrls = candidatas;
+
+    // El descubrimiento ya corrió —hace falta para el catálogo— pero si el sitio
+    // trae una selección manual, deja de decidir qué se audita.
+    const elegidas = chooseAuditList(site, {
+      urls,
+      method: base.discovery ?? 'none',
+      truncated: base.truncated,
+    });
+    if (elegidas.method === 'manual') {
+      log.info('páginas elegidas a mano', {
+        pedidas: site.pages.length,
+        a_auditar: elegidas.urls.length,
+        catalogo: candidatas.length,
+      });
+    }
+    urls = elegidas.urls;
+    base.discovery = elegidas.method;
+    base.truncated = elegidas.truncated;
 
     const homeUrl = urls[0];
     base.homeUrl = homeUrl ?? null;
@@ -242,6 +281,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
         pagesFailed: base.pagesFailed,
         maxPages: site.maxPages,
         truncated: base.truncated,
+        candidateUrls: base.candidateUrls,
         homeHttpStatus: base.homeHttpStatus,
         cert: base.cert,
         errorCategory,
@@ -273,6 +313,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
         pagesFailed: base.pagesFailed,
         maxPages: site.maxPages,
         truncated: base.truncated,
+        candidateUrls: base.candidateUrls,
         homeHttpStatus: base.homeHttpStatus,
         cert: base.cert,
         errorCategory: 'unknown',

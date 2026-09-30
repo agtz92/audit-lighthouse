@@ -173,3 +173,59 @@ sites:
     assert.equal(site?.enabled, false);
   });
 });
+
+describe('parseSitesConfig: selección manual de páginas', () => {
+  test('un sitio sin pages queda con la lista vacía, no undefined', () => {
+    const [site] = parseSitesConfig(`
+sites:
+  - id: uno
+    name: Uno
+    url: https://uno.example
+`);
+    assert.deepEqual(site?.pages, []);
+  });
+
+  test('lee las páginas elegidas en el orden del archivo', () => {
+    const [site] = parseSitesConfig(`
+sites:
+  - id: uno
+    name: Uno
+    url: https://uno.example
+    pages:
+      - https://uno.example/productos
+      - https://uno.example/contacto
+`);
+    assert.deepEqual(site?.pages, ['https://uno.example/productos', 'https://uno.example/contacto']);
+  });
+
+  test('rechaza una página que no es URL completa', () => {
+    // Si esto pasara, el auditor intentaría navegar a "/productos" y fallaría
+    // el sitio entero. Es mejor que la corrida no arranque y diga por qué.
+    assert.throws(
+      () => parseSitesConfig(`
+sites:
+  - id: uno
+    name: Uno
+    url: https://uno.example
+    pages:
+      - /productos
+`),
+      SitesConfigError,
+    );
+  });
+
+  test('pages no se puede declarar en defaults: no es heredable', () => {
+    assert.throws(
+      () => parseSitesConfig(`
+defaults:
+  pages:
+    - https://uno.example/a
+sites:
+  - id: uno
+    name: Uno
+    url: https://uno.example
+`),
+      SitesConfigError,
+    );
+  });
+});
