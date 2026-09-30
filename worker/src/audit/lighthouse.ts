@@ -14,7 +14,8 @@
  */
 
 import { gzipSync } from 'node:zlib';
-import lighthouse, { desktopConfig, generateReport } from 'lighthouse';
+import lighthouse, { desktopConfig } from 'lighthouse';
+import type { Lhr } from '../report/extract.js';
 
 export type LighthouseStrategy = 'desktop' | 'mobile';
 
@@ -46,10 +47,11 @@ export interface LighthouseOutcome {
   /** Reporte JSON completo comprimido con gzip: ~50 KB en vez de ~600 KB. */
   rawGzip: Buffer | null;
   /**
-   * El reporte en HTML, tal como lo genera Lighthouse. De aquí sale el PDF.
-   * No se guarda en la base: se imprime y se descarta.
+   * El resultado completo de Lighthouse. De aquí sale el informe: la plantilla
+   * necesita el detalle (oportunidades con su ahorro, auditorías no aprobadas
+   * con su descripción) que las columnas de la base no guardan desglosado.
    */
-  html: string | null;
+  lhr: Lhr | null;
   error: string | null;
 }
 
@@ -87,7 +89,7 @@ export async function runLighthouse(
 ): Promise<LighthouseOutcome> {
   const base: Omit<LighthouseOutcome, 'ok' | 'error'> = {
     strategy, url, scores: EMPTY_SCORES, metrics: EMPTY_METRICS,
-    version: null, rawGzip: null, html: null,
+    version: null, rawGzip: null, lhr: null,
   };
 
   try {
@@ -98,6 +100,10 @@ export async function runLighthouse(
         output: 'json',
         logLevel: 'error',
         onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
+        // Lighthouse trae sus propias traducciones. Sin esto, los títulos y las
+        // descripciones de cada auditoría salen en inglés dentro de un informe
+        // escrito en español. es-419 es el español latinoamericano.
+        locale: 'es-419',
       },
       // El config de escritorio cambia viewport, user agent y el perfil de red;
       // sin él, "desktop" mediría exactamente lo mismo que mobile.
@@ -144,7 +150,7 @@ export async function runLighthouse(
         ttiMs: roundOrNull(numericValue(audits, 'interactive')),
       },
       rawGzip: gzipSync(Buffer.from(JSON.stringify(lhr), 'utf8')),
-      html: generateReport(lhr, 'html'),
+      lhr: lhr as Lhr,
       error: null,
     };
   } catch (err) {

@@ -67,6 +67,9 @@ services:
       WEBHOOK_URL: ${WEBHOOK_URL:-}
       PERF_DROP_THRESHOLD: ${PERF_DROP_THRESHOLD:-10}
       CERT_EXPIRY_WARN_DAYS: ${CERT_EXPIRY_WARN_DAYS:-21}
+      REPORT_AUTHOR_NAME: ${REPORT_AUTHOR_NAME:-José Alfredo Gutiérrez Guerra}
+      REPORT_AUTHOR_ROLE: ${REPORT_AUTHOR_ROLE:-Consultor en soluciones de software e inteligencia artificial}
+      REPORT_AUTHOR_CREDENTIALS: ${REPORT_AUTHOR_CREDENTIALS:-ITE 2016 · MNA 2027}
       SITES_FILE: ${SITES_FILE:-/app/sites.yaml}
       PDF_DIR: ${PDF_DIR:-/data/pdfs}
       PDF_QUALITY: ${PDF_QUALITY:-ebook}

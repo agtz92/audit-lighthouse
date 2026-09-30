@@ -22,6 +22,10 @@ import { launchBrowser, cdpPortForSlot } from '../audit/browser.js';
 import { runLighthouse, type LighthouseOutcome } from '../audit/lighthouse.js';
 import { insertLighthouseResult } from '../db/lighthouse.js';
 import { recordPdfMeta } from '../db/runs.js';
+import { fetchPreviousForReport } from '../db/snapshots.js';
+import { buildReportData } from '../report/build.js';
+import { renderReportHtml } from '../report/template.js';
+import { pathOfUrl } from '../lib/url.js';
 import { sitePdfPaths, writeReportPdf, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
 import type { PdfQuality } from '../pdf/compress.js';
 import type { SiteRunResult } from './site-runner.js';
@@ -38,6 +42,8 @@ export interface LighthousePhaseDeps {
   pdfCompressTimeoutMs: number;
   pdfRenderTimeoutMs: number;
   runId: number | null;
+  /** Datos de marca que encabezan cada informe. */
+  consultant: { name: string; role: string; credentials: string };
 }
 
 export interface LighthousePhaseResult {
@@ -114,13 +120,46 @@ export async function runLighthousePhase(
               await insertLighthouseResult(result.siteRunId, result.siteId, outcome);
             }
 
-            // El PDF sale del reporte que acabamos de generar, impreso en el
-            // mismo navegador. Si falla, el del día anterior queda intacto.
-            if (outcome.ok && outcome.html !== null) {
+            // El PDF es nuestro informe, no el reporte de Lighthouse: se arma
+            // desde su JSON más lo que midió el propio sistema (disponibilidad
+            // por página, certificado, comparación con ayer). Si falla, el
+            // documento del día anterior queda intacto.
+            if (outcome.ok && outcome.lhr !== null) {
+              const previous = result.siteRunId === null
+                ? null
+                : await fetchPreviousForReport(result.siteId, strategy, result.siteRunId);
+
+              const html = await renderReportHtml(buildReportData({
+                consultant: deps.consultant,
+                site: { name: site.name, url: site.url },
+                strategy,
+                runId: deps.runId ?? 0,
+                runAt: new Date(),
+                lhr: outcome.lhr,
+                pages: result.pages.map((p) => ({
+                  path: pathOfUrl(p.url),
+                  isHome: p.isHome,
+                  httpStatus: p.httpStatus,
+                  ttfbMs: p.ttfbMs,
+                  loadMs: p.loadMs,
+                  transferBytes: p.transferBytes,
+                  requestCount: p.requestCount,
+                  ok: p.ok,
+                })),
+                pagesDiscovered: result.pagesDiscovered,
+                cert: result.cert === null ? null : {
+                  issuer: result.cert.issuer,
+                  validTo: result.cert.validTo,
+                  daysRemaining: result.cert.daysRemaining,
+                  valid: result.cert.valid,
+                },
+                previous,
+              }));
+
               const meta = await writeReportPdf({
                 paths,
                 strategy,
-                html: outcome.html,
+                html,
                 browser,
                 quality: deps.pdfQuality,
                 compressTimeoutMs: deps.pdfCompressTimeoutMs,

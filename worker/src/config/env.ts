@@ -73,6 +73,13 @@ const envSchema = z.object({
   PERF_DROP_THRESHOLD: int(10, 1, 100),
   CERT_EXPIRY_WARN_DAYS: int(21, 1, 365),
 
+  // ── Marca del informe ──────────────────────────────────────────────────
+  // Encabezan la portada y cada hoja. Van en configuración y no en el código
+  // para que cambiar un título no exija reconstruir la imagen.
+  REPORT_AUTHOR_NAME: str('José Alfredo Gutiérrez Guerra'),
+  REPORT_AUTHOR_ROLE: str('Consultor en soluciones de software e inteligencia artificial'),
+  REPORT_AUTHOR_CREDENTIALS: str('ITE 2016 · MNA 2027'),
+
   SITES_FILE: str('/app/sites.yaml'),
   PDF_DIR: str('/data/pdfs'),
   // Perfil de compresión de Ghostscript: screen (72 dpi) | ebook (150) |

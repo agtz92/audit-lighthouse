@@ -124,6 +124,11 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
     pdfCompressTimeoutMs: cfg.PDF_COMPRESS_TIMEOUT_MS,
     pdfRenderTimeoutMs: cfg.PDF_RENDER_TIMEOUT_MS,
     runId,
+    consultant: {
+      name: cfg.REPORT_AUTHOR_NAME,
+      role: cfg.REPORT_AUTHOR_ROLE,
+      credentials: cfg.REPORT_AUTHOR_CREDENTIALS,
+    },
   });
 
   const sitesFailed = results.filter((r) => r.status === 'failed').length;

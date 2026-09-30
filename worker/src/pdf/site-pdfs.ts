@@ -18,6 +18,9 @@ import type { LighthouseStrategy } from '../audit/lighthouse.js';
 import type { PdfMeta } from '../db/runs.js';
 import type { Logger } from '../lib/logger.js';
 
+/** Hojas que debe tener el informe: portada más cuatro de contenido. */
+const EXPECTED_PAGES = 5;
+
 export interface SitePdfPaths {
   dir: string;
   desktop: string;
@@ -60,6 +63,19 @@ export async function writeReportPdf(opts: WriteReportOptions): Promise<PdfMeta 
   try {
     const raw = await renderReportPdf(opts.browser, opts.html, { timeoutMs: opts.renderTimeoutMs });
     const pages = (await PDFDocument.load(raw, { ignoreEncryption: true })).getPageCount();
+
+    // El informe está diseñado para EXPECTED_PAGES hojas exactas y sus pies dicen
+    // "Hoja 2 de 5". Si el contenido desborda, el documento queda mintiendo sobre
+    // su propia extensión. Ya está acotado por LIMITS, pero esto lo deja visible
+    // si algún día una lista nueva se olvida de acotarse.
+    if (pages !== EXPECTED_PAGES) {
+      log.warn('el informe no tiene el número de hojas esperado', {
+        archivo: strategy,
+        esperadas: EXPECTED_PAGES,
+        obtenidas: pages,
+        pista: 'alguna lista del informe desbordó su hoja; revisa LIMITS en report/model.ts',
+      });
+    }
 
     if (opts.dryRun) {
       log.info('dry-run: PDF no escrito', { archivo: strategy, bytes: raw.byteLength, paginas: pages });

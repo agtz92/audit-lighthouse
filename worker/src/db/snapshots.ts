@@ -111,3 +111,28 @@ export async function hasSuccessfulRunToday(timezone: string): Promise<boolean> 
   );
   return rows[0]?.existe === true;
 }
+
+/**
+ * Valores de la corrida anterior de un sitio en una estrategia, para la tabla
+ * de comparación del informe. null si es la primera vez que se mide.
+ */
+export async function fetchPreviousForReport(
+  siteId: string,
+  strategy: 'desktop' | 'mobile',
+  beforeSiteRunId: number,
+): Promise<{ scores: { performance: number | null }; metrics: { lcpMs: number | null; tbtMs: number | null } } | null> {
+  const { rows } = await db().query<{ performance: number | null; lcp_ms: number | null; tbt_ms: number | null }>(
+    `SELECT lr.performance, lr.lcp_ms, lr.tbt_ms
+       FROM lighthouse_results lr
+      WHERE lr.site_id = $1
+        AND lr.strategy = $2
+        AND lr.ok
+        AND lr.site_run_id < $3
+      ORDER BY lr.site_run_id DESC
+      LIMIT 1`,
+    [siteId, strategy, beforeSiteRunId],
+  );
+  const r = rows[0];
+  if (r === undefined) return null;
+  return { scores: { performance: r.performance }, metrics: { lcpMs: r.lcp_ms, tbtMs: r.tbt_ms } };
+}

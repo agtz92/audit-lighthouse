@@ -91,3 +91,13 @@ export function looksLikePage(url: string): boolean {
     return false;
   }
 }
+
+/** Ruta legible de una URL, sin esquema ni dominio. Para tablas del informe. */
+export function pathOfUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname === '/' ? '/' : u.pathname + u.search;
+  } catch {
+    return url;
+  }
+}
