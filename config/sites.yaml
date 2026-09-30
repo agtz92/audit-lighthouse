@@ -35,6 +35,12 @@ sites:
     url: https://www.corthw.com
     sitemap: https://www.corthw.com/sitemap.xml # 32 URLs
     enabled: true
+    pages:
+      - https://www.corthw.com/
+      - https://www.corthw.com/productos
+      - https://www.corthw.com/contacto
+      - https://www.corthw.com/productos/cortina-hawaiana-lisa-transparente
+      - https://www.corthw.com/productos/tope-para-anden-laminado-con-cara-de-acero
 
   - id: matmarkt
     name: MatMarkt

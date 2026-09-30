@@ -24,7 +24,19 @@ import { fmtBytes, fmtMs, fmtNum } from '@/lib/format';
  */
 
 export interface TrendDatum {
-  /** Etiqueta del eje X, ya formateada. */
+  /**
+   * Identidad del punto en el eje X. Tiene que ser ÚNICA, y por eso no es la
+   * fecha formateada: varias corridas del mismo día comparten etiqueta —la de
+   * las 06:00, una manual, una de recuperación— y Recharts trata el valor del
+   * eje como categoría. Con categorías repetidas dibuja la retícula donde está
+   * el cursor pero resuelve el contenido al PRIMER punto que comparte etiqueta,
+   * así que el tooltip mostraba los números de otra corrida.
+   *
+   * Sirve cualquier cosa estable y distinta por punto: el id de la corrida o su
+   * marca de tiempo.
+   */
+  key: string;
+  /** Etiqueta del eje X, ya formateada. Puede repetirse: es solo texto. */
   label: string;
   /** Fecha completa para el tooltip. */
   full: string;
@@ -104,6 +116,8 @@ export function TrendChart({
   // vacía aunque haya datos, así que ahí sí se marcan los puntos.
   const pocosPuntos = data.length <= 10;
   const hayDatos = data.some((d) => d.desktop !== null || d.mobile !== null);
+  // El eje se mueve sobre la clave única; la fecha se pinta al formatear la marca.
+  const etiquetas = new Map(data.map((d) => [d.key, d.label]));
 
   return (
     <div className="chart-card">
@@ -117,7 +131,8 @@ export function TrendChart({
             <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
               <CartesianGrid stroke="var(--grid)" strokeWidth={1} vertical={false} />
               <XAxis
-                dataKey="label"
+                dataKey="key"
+                tickFormatter={(k: string) => etiquetas.get(k) ?? ''}
                 tick={{ fill: 'var(--ink-muted)', fontSize: 10 }}
                 stroke="var(--axis)"
                 tickLine={false}

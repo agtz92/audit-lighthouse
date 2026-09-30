@@ -31,6 +31,9 @@ function toTrend(points: TrendPoint[], metric: Metric): TrendDatum[] {
   for (const p of points) {
     const clave = p.siteRunId;
     const existente = porCorrida.get(clave) ?? {
+      // El id de la corrida es la clave del eje X. La fecha formateada no sirve:
+      // se repite entre corridas del mismo día y Recharts la usa como categoría.
+      key: String(clave),
       label: fmtDate(p.at),
       full: fmtDateTime(p.at),
       desktop: null,
@@ -64,18 +67,21 @@ export default async function SitePage({
   ]);
 
   const disponibilidad: TrendDatum[] = availability.map((p) => ({
+    key: p.at.toISOString(),
     label: fmtDate(p.at),
     full: fmtDateTime(p.at),
     desktop: p.ttfbMs,
     mobile: null,
   }));
   const carga: TrendDatum[] = availability.map((p) => ({
+    key: p.at.toISOString(),
     label: fmtDate(p.at),
     full: fmtDateTime(p.at),
     desktop: p.loadMs,
     mobile: null,
   }));
   const peso: TrendDatum[] = availability.map((p) => ({
+    key: p.at.toISOString(),
     label: fmtDate(p.at),
     full: fmtDateTime(p.at),
     desktop: p.transferBytes,
