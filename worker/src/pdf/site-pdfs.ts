@@ -54,6 +54,8 @@ export interface SitePdfCollectorOptions {
   /** Perfil de compresión aplicado a los dos archivos finales. */
   quality: PdfQuality;
   compressTimeoutMs: number;
+  /** Tope para imprimir UNA página. page.pdf() no trae timeout propio. */
+  renderTimeoutMs: number;
 }
 
 /**
@@ -84,7 +86,7 @@ export class SitePdfCollector {
   async capture(page: Page, url: string, index: number): Promise<void> {
     if (!this.#ready) throw new Error('SitePdfCollector.init() no se llamó');
     try {
-      const bytes = await renderPagePdf(page, url);
+      const bytes = await renderPagePdf(page, url, this.opts.renderTimeoutMs);
       if (this.opts.dryRun) {
         this.#captured.set(url, `(dry-run ${bytes.byteLength} bytes)`);
         return;
@@ -169,6 +171,8 @@ export class SitePdfCollector {
       timeoutMs: this.opts.compressTimeoutMs,
       log: this.opts.log,
     });
+    // Se registra SIEMPRE, se haya aplicado o no: un descarte silencioso hacía
+    // que un full.pdf de 100 MB simplemente no apareciera en el resumen.
     if (result.applied) {
       this.opts.log.info('PDF comprimido', {
         archivo: name,
@@ -176,6 +180,12 @@ export class SitePdfCollector {
         despues_bytes: result.finalBytes,
         reduccion: `${result.ratio.toFixed(1)}x`,
         perfil: this.opts.quality,
+      });
+    } else {
+      this.opts.log.warn('PDF guardado SIN comprimir', {
+        archivo: name,
+        bytes: result.originalBytes,
+        motivo: result.reason ?? 'desconocido',
       });
     }
     return result.bytes;

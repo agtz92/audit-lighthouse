@@ -42,6 +42,12 @@ const envSchema = z.object({
   LIGHTHOUSE_CONCURRENCY: int(1, 1, 8),
 
   RUN_BUDGET_MINUTES: int(45, 1, 1440),
+  // Tope por sitio, además del global. Sin él un solo sitio lento se come la
+  // corrida entera: medido aquí, un sitio con 21 páginas que se van a timeout
+  // consumió 29 de los 45 minutos él solo.
+  SITE_BUDGET_MINUTES: int(8, 1, 120),
+  // page.pdf() no tiene timeout propio en Playwright.
+  PDF_RENDER_TIMEOUT_MS: int(45_000, 5000, 300_000),
   NAV_TIMEOUT_MS: int(30_000, 1000, 300_000),
   LIGHTHOUSE_TIMEOUT_MS: int(120_000, 10_000, 600_000),
 
@@ -72,7 +78,8 @@ const envSchema = z.object({
   // Perfil de compresión de Ghostscript: screen (72 dpi) | ebook (150) |
   // printer (300) | none. El texto nunca se rasteriza; solo bajan las imágenes.
   PDF_QUALITY: str('ebook').pipe(z.enum(PDF_QUALITIES)),
-  PDF_COMPRESS_TIMEOUT_MS: int(180_000, 5000, 900_000),
+  // Base del tope de Ghostscript; el tope real crece con el tamaño del documento.
+  PDF_COMPRESS_TIMEOUT_MS: int(60_000, 5000, 900_000),
   LOG_LEVEL: str('info').pipe(z.enum(['debug', 'info', 'warn', 'error'])),
   USER_AGENT: str('site-monitor/1.0 (+auditoria interna)'),
 });

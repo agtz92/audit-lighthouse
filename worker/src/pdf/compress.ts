@@ -83,6 +83,19 @@ function runGhostscript(input: string, output: string, quality: PdfQuality, time
   });
 }
 
+/**
+ * Tope de tiempo de Ghostscript, proporcional al tamaño del documento.
+ *
+ * Un número fijo no sirve: con 180 s fijos, dos documentos de esta corrida
+ * (275 y 196 hojas) se pasaron del tope y se guardaron sin comprimir, uno de
+ * ellos en 100 MB. Comprimir es lineal en el tamaño, así que el tope también.
+ */
+export function compressTimeoutFor(bytes: number, baseMs: number): number {
+  const porMegabyte = 6000;
+  const megas = bytes / 1_000_000;
+  return Math.min(900_000, Math.max(baseMs, Math.round(baseMs + megas * porMegabyte)));
+}
+
 export interface CompressOptions {
   quality: PdfQuality;
   /** Directorio de trabajo; debe existir. */
@@ -112,8 +125,9 @@ export async function compressPdf(bytes: Uint8Array, opts: CompressOptions): Pro
   const output = join(opts.tmpDir, `${opts.name}.gs-out.pdf`);
 
   try {
+    const timeoutMs = compressTimeoutFor(originalBytes, opts.timeoutMs ?? 60_000);
     await writeFile(input, bytes);
-    await runGhostscript(input, output, opts.quality, opts.timeoutMs ?? 180_000);
+    await runGhostscript(input, output, opts.quality, timeoutMs);
     const compressed = await readFile(output);
 
     // Guardas: el resultado tiene que ser un PDF legible, con las mismas páginas

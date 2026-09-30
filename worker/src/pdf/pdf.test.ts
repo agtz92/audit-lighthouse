@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { PDFDocument } from 'pdf-lib';
 import { mergePdfs, buildFullPdf, type PdfPart } from './merge.js';
 import { countIndexPages, layoutIndex, buildIndexPdf } from './index-page.js';
+import { compressTimeoutFor } from './compress.js';
 
 /** PDF de prueba con `pages` hojas. */
 async function makePdf(pages: number): Promise<Uint8Array> {
@@ -140,5 +141,26 @@ describe('buildFullPdf', () => {
       META,
     );
     assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
+  });
+});
+
+describe('compressTimeoutFor', () => {
+  test('el tope crece con el tamaño del documento', () => {
+    const chico = compressTimeoutFor(1_000_000, 60_000);
+    const grande = compressTimeoutFor(100_000_000, 60_000);
+    assert.ok(grande > chico, 'un documento de 100 MB necesita más tiempo que uno de 1 MB');
+  });
+
+  test('nunca baja de la base', () => {
+    assert.ok(compressTimeoutFor(0, 60_000) >= 60_000);
+  });
+
+  test('el documento que falló en la corrida real ahora sí alcanza', () => {
+    // grupohule: full.pdf de ~104 MB se pasó del tope fijo de 180 s.
+    assert.ok(compressTimeoutFor(104_569_414, 60_000) > 180_000);
+  });
+
+  test('tiene techo: un documento absurdo no bloquea la corrida para siempre', () => {
+    assert.equal(compressTimeoutFor(10_000_000_000, 60_000), 900_000);
   });
 });

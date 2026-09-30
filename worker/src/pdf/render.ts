@@ -11,6 +11,7 @@
  */
 
 import type { Page } from 'playwright';
+import { withTimeout } from '../lib/timeout.js';
 
 /** Márgenes A4 en pulgadas; el pie necesita ~0.5in abajo para caber. */
 const MARGIN = { top: '0.4in', bottom: '0.55in', left: '0.4in', right: '0.4in' };
@@ -36,10 +37,16 @@ function footerTemplate(url: string): string {
 </div>`;
 }
 
-/** Imprime la página actual a un buffer PDF en A4. */
-export async function renderPagePdf(page: Page, sourceUrl: string): Promise<Uint8Array> {
-  await page.emulateMedia({ media: 'screen' });
-  return page.pdf({
+/**
+ * Imprime la página actual a un buffer PDF en A4.
+ *
+ * page.pdf() NO tiene timeout propio en Playwright: una página con un canvas
+ * enorme o una animación infinita lo deja colgado para siempre. Quien llama
+ * cierra la página después, que es lo que libera el trabajo huérfano.
+ */
+export async function renderPagePdf(page: Page, sourceUrl: string, timeoutMs: number): Promise<Uint8Array> {
+  await withTimeout(page.emulateMedia({ media: 'screen' }), 10_000, 'emulateMedia');
+  return withTimeout(page.pdf({
     format: 'A4',
     printBackground: true,
     displayHeaderFooter: true,
@@ -48,5 +55,5 @@ export async function renderPagePdf(page: Page, sourceUrl: string): Promise<Uint
     margin: MARGIN,
     // Sin esto, un sitio con @page { size: landscape } sobreescribe el A4.
     preferCSSPageSize: false,
-  });
+  }), timeoutMs, `impresión de ${sourceUrl}`);
 }

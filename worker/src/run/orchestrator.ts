@@ -102,6 +102,8 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
             dryRun,
             pdfQuality: cfg.PDF_QUALITY,
             pdfCompressTimeoutMs: cfg.PDF_COMPRESS_TIMEOUT_MS,
+            pdfRenderTimeoutMs: cfg.PDF_RENDER_TIMEOUT_MS,
+            siteBudgetMs: cfg.SITE_BUDGET_MINUTES * 60_000,
           });
         } finally {
           slots.release(slot);

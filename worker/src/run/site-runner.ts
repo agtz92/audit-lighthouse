@@ -21,6 +21,7 @@ import { startSiteRun, finishSiteRun, recordPdfMeta, type SiteRunStatus } from '
 import { insertPageResults, type PageRow } from '../db/results.js';
 import { SitePdfCollector, sitePdfPaths, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
 import type { PdfQuality } from '../pdf/compress.js';
+import { withTimeout, withTimeoutOr, TimeoutError } from '../lib/timeout.js';
 
 export interface RunSiteDeps {
   /** null en dry-run: nada se escribe en la base. */
@@ -36,6 +37,9 @@ export interface RunSiteDeps {
   dryRun: boolean;
   pdfQuality: PdfQuality;
   pdfCompressTimeoutMs: number;
+  pdfRenderTimeoutMs: number;
+  /** Tope propio del sitio, además del presupuesto global de la corrida. */
+  siteBudgetMs: number;
 }
 
 export interface SiteRunResult {
@@ -63,6 +67,17 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
   const startedAt = Date.now();
   const log = deps.log.child({ site_id: site.id });
   const persist = deps.runId !== null;
+
+  // Reloj del sitio: lo que quede del presupuesto global, o su tope propio, lo
+  // que se agote primero. Esto es lo que impide que un sitio lento se lleve la
+  // corrida completa: el presupuesto global solo evita EMPEZAR sitios nuevos,
+  // no puede cortar lo que ya está en vuelo.
+  const siteDeadlineAt = Math.min(
+    Date.now() + deps.siteBudgetMs,
+    deps.deadline.endsAt,
+  );
+  const siteExpired = (): boolean => Date.now() >= siteDeadlineAt;
+  const siteRemainingMs = (): number => Math.max(0, siteDeadlineAt - Date.now());
 
   const siteRunId = persist ? await startSiteRun(deps.runId as number, site.id) : null;
 
@@ -118,8 +133,15 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     // complementa leyendo el DOM ya renderizado en el navegador que de todas
     // formas acabamos de abrir.
     let urls = discovery.urls;
-    if (discovery.method === 'crawl' || discovery.method === 'home_only') {
-      const harvest = await harvestRenderedLinks(context, site, { signal: deps.deadline.signal });
+    if ((discovery.method === 'crawl' || discovery.method === 'home_only') && !siteExpired()) {
+      // La cosecha es opcional: si tarda, se sigue con lo que ya se descubrió.
+      const harvest = await withTimeoutOr(
+        harvestRenderedLinks(context, site, { signal: deps.deadline.signal }),
+        Math.min(60_000, siteRemainingMs()),
+        'cosecha de links renderizados',
+        { urls: [] as string[], fetches: 0 },
+        (err) => log.warn('cosecha de links cortada por tiempo', { motivo: err.message }),
+      );
       if (harvest.urls.length > urls.length) {
         const merged = finalizeUrlList(site.url, [...urls.slice(1), ...harvest.urls], site);
         log.info('links cosechados del DOM renderizado', {
@@ -146,6 +168,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
       log,
       quality: deps.pdfQuality,
       compressTimeoutMs: deps.pdfCompressTimeoutMs,
+      renderTimeoutMs: deps.pdfRenderTimeoutMs,
     });
     await pdfs.init();
 
@@ -197,15 +220,24 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     }
 
     // Los dos PDFs se arman al final, en orden de descubrimiento y no de término.
-    const pdfMeta = await pdfs.finalize(urls, homeUrl, {
-      siteName: site.name,
-      siteUrl: site.url,
-      generatedAt: new Date(),
-      discovered: base.pagesDiscovered,
-      truncated: base.truncated,
-      maxPages: site.maxPages,
-      failed: base.pagesAudited - pdfs.capturedCount,
-    });
+    // El ensamblado también lleva tope: unir y comprimir documentos grandes con
+    // la memoria al tope se vuelve muy lento, y sin este límite el sitio nunca
+    // terminaba. Si se corta, los PDFs del día anterior quedan intactos.
+    const pdfMeta = await withTimeoutOr(
+      pdfs.finalize(urls, homeUrl, {
+        siteName: site.name,
+        siteUrl: site.url,
+        generatedAt: new Date(),
+        discovered: base.pagesDiscovered,
+        truncated: base.truncated,
+        maxPages: site.maxPages,
+        failed: base.pagesAudited - pdfs.capturedCount,
+      }),
+      Math.max(60_000, siteRemainingMs() + 120_000),
+      'ensamblado de los PDFs',
+      { home: null, full: null },
+      (err) => log.warn('ensamblado de PDFs cortado por tiempo', { motivo: err.message }),
+    );
     if (persist && (pdfMeta.home !== null || pdfMeta.full !== null)) {
       await recordPdfMeta(siteRunId as number, pdfMeta.home, pdfMeta.full);
     }

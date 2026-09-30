@@ -42,14 +42,17 @@ export async function mergePdfs(parts: Uint8Array[]): Promise<{ bytes: Uint8Arra
 export async function buildFullPdf(parts: PdfPart[], meta: IndexMeta): Promise<MergedPdf> {
   const indexPages = countIndexPages(parts.length);
 
-  // Cuántas páginas aporta cada PDF individual, para saber dónde empieza cada uno.
-  const bodyDocs: PDFDocument[] = [];
+  // Primera pasada: solo contar hojas, para saber dónde empieza cada documento.
+  //
+  // Se carga uno a la vez y se suelta la referencia en lugar de guardarlos todos:
+  // pdf-lib mantiene cada documento entero en memoria, y con 50 páginas pesadas
+  // eso son cientos de megabytes de pico. Con el contenedor cerca de su límite,
+  // esa presión hacía que el recolector de basura se comiera el tiempo de la
+  // corrida. Cuesta parsear cada PDF dos veces, que es barato al lado de unirlos.
   const entries: IndexEntry[] = [];
   let offset = 0;
-
   for (const part of parts) {
     const doc = await PDFDocument.load(part.bytes, { ignoreEncryption: true });
-    bodyDocs.push(doc);
     entries.push({ url: part.url, page: indexPages + offset + 1 });
     offset += doc.getPageCount();
   }
@@ -71,7 +74,9 @@ export async function buildFullPdf(parts: PdfPart[], meta: IndexMeta): Promise<M
   }
   for (const page of await out.copyPages(indexDoc, indexDoc.getPageIndices())) out.addPage(page);
 
-  for (const doc of bodyDocs) {
+  // Segunda pasada: copiar. Un documento fuente vivo a la vez.
+  for (const part of parts) {
+    const doc = await PDFDocument.load(part.bytes, { ignoreEncryption: true });
     for (const page of await out.copyPages(doc, doc.getPageIndices())) out.addPage(page);
   }
 

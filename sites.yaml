@@ -13,7 +13,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 defaults:
-  maxPages: 50
+  # 5 páginas por sitio: la corrida completa de 20 sitios tiene que caber en la
+  # ventana de las 6am. full.pdf es entonces una MUESTRA de 5 páginas, no el
+  # sitio completo, y el índice del PDF lo dice explícitamente.
+  maxPages: 5
   timeoutMs: 30000
   viewport: { width: 1440, height: 900 }
   waitUntil: networkidle
@@ -81,13 +84,13 @@ sites:
   - id: mexgamer
     name: MexGamer
     url: https://www.mexgamer.com
-    sitemap: https://www.mexgamer.com/sitemap.xml # 1257 URLs -> se trunca a maxPages
+    sitemap: https://www.mexgamer.com/sitemap.xml # 1257 URLs
     enabled: true
 
   - id: 3minread
     name: 3 Min Read
     url: https://www.3minread.com
-    sitemap: https://www.3minread.com/sitemap.xml # 1228 URLs -> se trunca a maxPages
+    sitemap: https://www.3minread.com/sitemap.xml # 1228 URLs
     enabled: true
 
   - id: 10datos
