@@ -11,3 +11,4 @@ data/pdfs/*
 # Next.js
 dashboard/.next/
 dashboard/next-env.d.ts
+dashboard/tsconfig.tsbuildinfo
