@@ -67,7 +67,16 @@ function metricRow(label: string, hint: string, valor: string, umbral: string, r
   </tr>`;
 }
 
-function header(data: ReportData, titulo: string, hoja: number): string {
+/**
+ * Encabezado de las hojas interiores.
+ *
+ * NO lleva número de hoja: la numeración vive en un solo lugar, el pie que
+ * dibuja Chromium, que es el único que sabe cuántas páginas tiene el documento.
+ * Tener el número en dos lados terminó como tenía que terminar —el encabezado
+ * decía "hoja 3" mientras el pie decía "Hoja 4 de 7"— porque uno se calculaba
+ * a mano y el otro de verdad.
+ */
+function header(data: ReportData, titulo: string): string {
   return `<header class="brand">
     <div class="who">
       <strong>${esc(data.consultant.name)}</strong>
@@ -75,7 +84,7 @@ function header(data: ReportData, titulo: string, hoja: number): string {
     </div>
     <div class="doc">
       <b>${titulo}</b>
-      <span>${esc(data.site.name)} · hoja ${hoja}</span>
+      <span>${esc(data.site.name)}</span>
     </div>
   </header>`;
 }
@@ -248,7 +257,7 @@ tbody tr:last-child td { border-bottom:none; }
 
 <!-- ═══════════ DIAGNÓSTICO ═══════════ -->
 <section class="sheet">
-  ${header(data, 'Diagnóstico', 2)}
+  ${header(data, 'Diagnóstico')}
 
   <div class="sec"><span class="n">1</span><h3>Conclusión</h3></div>
   <p class="verdict">${verdict(data)}</p>
@@ -280,7 +289,7 @@ tbody tr:last-child td { border-bottom:none; }
 
 <!-- ═══════════ RENDIMIENTO ═══════════ -->
 <section class="sheet">
-  ${header(data, 'Rendimiento', 3)}
+  ${header(data, 'Rendimiento')}
 
   <div class="sec"><span class="n">5</span><h3>Métricas de carga</h3><span class="note">${ESTRATEGIA[data.strategy].toLowerCase()} contra el umbral recomendado</span></div>
   <table>
@@ -325,7 +334,7 @@ tbody tr:last-child td { border-bottom:none; }
 
 <!-- ═══════════ CALIDAD ═══════════ -->
 <section class="sheet">
-  ${header(data, 'Calidad', 4)}
+  ${header(data, 'Calidad')}
 
   <div class="sec"><span class="n">8</span><h3>Hallazgos de accesibilidad</h3><span class="note">score ${num(data.scores.accessibility)} · ${a11y.length} ${a11y.length === 1 ? 'auditoría' : 'auditorías'} no ${a11y.length === 1 ? 'aprobada' : 'aprobadas'}</span></div>
   ${a11y.length === 0
@@ -360,7 +369,7 @@ tbody tr:last-child td { border-bottom:none; }
 
 <!-- ═══════════ INFRAESTRUCTURA ═══════════ -->
 <section class="sheet">
-  ${header(data, 'Infraestructura', 5)}
+  ${header(data, 'Infraestructura')}
 
   <div class="sec"><span class="n">11</span><h3>Disponibilidad por página</h3><span class="note">${data.pagesAudited} de ${data.pagesDiscovered} URLs del sitio</span></div>
   <table>

@@ -41,7 +41,12 @@ const envSchema = z.object({
   PAGE_CONCURRENCY: int(3, 1, 16),
   LIGHTHOUSE_CONCURRENCY: int(1, 1, 8),
 
-  RUN_BUDGET_MINUTES: int(45, 1, 1440),
+  // 90 min, no 45. Medido en una corrida real: Lighthouse cuesta 1.59 min por
+  // sitio y va de uno en uno, así que 20 sitios sanos son ~39 min. Con 45 el
+  // margen era de 6 minutos y cualquier sitio lento empezaba a dejar sitios sin
+  // auditar. El objetivo es que la corrida termine completa; a las 6am no hay
+  // nada más compitiendo por la máquina y acabar a las 7:30 no le estorba a nadie.
+  RUN_BUDGET_MINUTES: int(90, 1, 1440),
   // Tope por sitio, además del global. Sin él un solo sitio lento se come la
   // corrida entera: medido aquí, un sitio con 21 páginas que se van a timeout
   // consumió 29 de los 45 minutos él solo.
