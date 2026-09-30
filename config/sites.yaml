@@ -118,12 +118,6 @@ sites:
     # 2026-09-29: HTTP 503.
     enabled: true
 
-  - id: kawaiimx
-    name: Kawaii MX
-    url: https://www.kawaiimx.com
-    # 2026-09-29: HTTP 409 en IP de Shopify; suele ser dominio mal conectado.
-    enabled: true
-
   - id: compatips
     name: CompaTips
     url: https://www.compatips.com
@@ -161,3 +155,9 @@ sites:
     url: https://www.continuu.it
     sitemap: https://www.continuu.it/sitemap.xml # 26 URLs
     enabled: true
+  - id: sombrealo
+    name: Sombrealo
+    url: https://www.sombrealo.com
+    sitemap: https://www.sombrealo.com/sitemap.xml
+    enabled: true
+    maxPages: 5
