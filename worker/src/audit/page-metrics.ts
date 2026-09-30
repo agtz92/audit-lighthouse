@@ -116,13 +116,6 @@ export interface AuditPageOptions {
   /** Sobrescribe el waitUntil del sitio, para el reintento degradado. */
   waitUntil?: ResolvedSite['waitUntil'];
   signal?: AbortSignal;
-  /**
-   * Se invoca con la página ya cargada, antes de cerrarla, solo si la navegación
-   * salió bien. Existe para que la generación del PDF aproveche esta misma visita:
-   * cargar cada página dos veces —una para medir y otra para imprimir— duplicaría
-   * el costo de la corrida. Si lanza, se registra pero no invalida la medición.
-   */
-  capture?: (page: Page, url: string) => Promise<void>;
 }
 
 /** Mide una página. Una sola pasada, sin reintentos: eso lo maneja quien llama. */
@@ -186,18 +179,6 @@ async function auditOnce(
     const status = response.status();
     const statusCategory = categorizeStatus(status);
     const timings = await readTimings(page);
-
-    // El capture va después de leer los timings para no contaminarlos, y solo si
-    // la página respondió: imprimir un 503 no sirve de nada.
-    if (statusCategory === null && opts.capture !== undefined) {
-      try {
-        await opts.capture(page, url);
-      } catch {
-        // Defensa en profundidad: quien implementa capture ya reporta sus
-        // errores. Que no se pueda imprimir un PDF no invalida una medición que
-        // ya está tomada.
-      }
-    }
 
     return {
       url,

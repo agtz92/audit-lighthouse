@@ -1,166 +1,109 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument } from 'pdf-lib';
-import { mergePdfs, buildFullPdf, type PdfPart } from './merge.js';
-import { countIndexPages, layoutIndex, buildIndexPdf } from './index-page.js';
+import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { compressTimeoutFor } from './compress.js';
-
-/** PDF de prueba con `pages` hojas. */
-async function makePdf(pages: number): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  for (let i = 0; i < pages; i += 1) doc.addPage([595.28, 841.89]);
-  return doc.save();
-}
-
-const META = {
-  siteName: 'Sitio de prueba',
-  siteUrl: 'https://x.example',
-  generatedAt: new Date('2026-09-29T12:00:00Z'),
-  discovered: 3,
-  truncated: false,
-  maxPages: 50,
-  failed: 0,
-};
-
-describe('mergePdfs', () => {
-  test('une varios documentos y reporta cuántas hojas aportó cada uno', async () => {
-    const { bytes, pageCounts } = await mergePdfs([await makePdf(1), await makePdf(3), await makePdf(2)]);
-    assert.deepEqual(pageCounts, [1, 3, 2]);
-    const merged = await PDFDocument.load(bytes);
-    assert.equal(merged.getPageCount(), 6);
-  });
-
-  test('unir una lista vacía no explota', async () => {
-    // Caso inalcanzable desde buildFullPdf, que nunca llama aquí con cero partes,
-    // pero conviene que no lance. pdf-lib reporta 1 página al releer un documento
-    // guardado sin ninguna: un PDF de cero páginas no es un PDF válido.
-    const { bytes, pageCounts } = await mergePdfs([]);
-    assert.deepEqual(pageCounts, []);
-    assert.ok(bytes.byteLength > 0);
-  });
-});
-
-describe('layoutIndex', () => {
-  test('pocas entradas caben en una hoja', () => {
-    assert.equal(countIndexPages(1), 1);
-    assert.equal(countIndexPages(40), 1);
-  });
-
-  test('muchas entradas se reparten en varias hojas', () => {
-    assert.ok(countIndexPages(200) > 1);
-  });
-
-  test('la distribución suma exactamente las entradas que se le dieron', () => {
-    for (const n of [0, 1, 7, 50, 51, 120, 999]) {
-      const dist = layoutIndex(n);
-      assert.equal(dist.reduce((a, b) => a + b, 0), n, `${n} entradas`);
-    }
-  });
-
-  test('ninguna hoja queda vacía salvo cuando no hay entradas', () => {
-    for (const n of [1, 50, 51, 120]) {
-      assert.ok(layoutIndex(n).every((rows) => rows > 0), `${n} entradas`);
-    }
-  });
-});
-
-describe('buildFullPdf', () => {
-  test('el total de páginas es el índice más el cuerpo', async () => {
-    const parts: PdfPart[] = [
-      { url: 'https://x.example/', bytes: await makePdf(2) },
-      { url: 'https://x.example/a', bytes: await makePdf(1) },
-      { url: 'https://x.example/b', bytes: await makePdf(3) },
-    ];
-    const { bytes, totalPages, entries } = await buildFullPdf(parts, META);
-    const indexPages = countIndexPages(parts.length);
-
-    assert.equal(totalPages, indexPages + 6);
-    assert.equal((await PDFDocument.load(bytes)).getPageCount(), totalPages);
-    assert.equal(entries.length, 3);
-  });
-
-  test('los números del índice apuntan a la página real de cada documento', async () => {
-    const parts: PdfPart[] = [
-      { url: 'https://x.example/', bytes: await makePdf(2) },
-      { url: 'https://x.example/a', bytes: await makePdf(1) },
-      { url: 'https://x.example/b', bytes: await makePdf(3) },
-    ];
-    const { entries } = await buildFullPdf(parts, META);
-    const idx = countIndexPages(parts.length);
-
-    // Primer documento justo después del índice; los siguientes desplazados por
-    // las hojas que ocupó el anterior.
-    assert.equal(entries[0]?.page, idx + 1);
-    assert.equal(entries[1]?.page, idx + 3, 'el primero ocupa 2 hojas');
-    assert.equal(entries[2]?.page, idx + 4);
-  });
-
-  test('con un índice de varias hojas los números siguen cuadrando', async () => {
-    // 120 entradas fuerzan un índice de más de una hoja: es el caso donde una
-    // estimación ingenua del tamaño del índice corre todos los números.
-    const parts: PdfPart[] = await Promise.all(
-      Array.from({ length: 120 }, async (_, i) => ({
-        url: `https://x.example/p${i}`,
-        bytes: await makePdf(1),
-      })),
-    );
-    const { totalPages, entries } = await buildFullPdf(parts, { ...META, discovered: 120 });
-    const idx = countIndexPages(120);
-
-    assert.ok(idx > 1, 'el índice debe ocupar más de una hoja para que la prueba valga');
-    assert.equal(totalPages, idx + 120);
-    assert.equal(entries[0]?.page, idx + 1);
-    assert.equal(entries[119]?.page, idx + 120, 'la última entrada apunta a la última hoja');
-  });
-
-  test('un cuerpo vacío produce solo el índice', async () => {
-    const { totalPages, entries } = await buildFullPdf([], { ...META, discovered: 0 });
-    assert.equal(entries.length, 0);
-    assert.equal(totalPages, countIndexPages(0));
-  });
-
-  test('el aviso de truncado no rompe la paginación', async () => {
-    const parts: PdfPart[] = [{ url: 'https://x.example/', bytes: await makePdf(1) }];
-    const { totalPages } = await buildFullPdf(parts, {
-      ...META,
-      truncated: true,
-      discovered: 1257,
-      maxPages: 50,
-      failed: 3,
-    });
-    assert.equal(totalPages, countIndexPages(1) + 1);
-  });
-
-  test('genera un índice legible por pdf-lib con URLs de caracteres raros', async () => {
-    // Acentos sin escapar e IDN: Helvetica codifica WinAnsi y no los soporta.
-    const bytes = await buildIndexPdf(
-      [
-        { url: 'https://x.example/categoría/niño', page: 2 },
-        { url: 'https://xn--ncia-4ma.example/страница', page: 3 },
-      ],
-      META,
-    );
-    assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
-  });
-});
+import { writeFileAtomic, fileSize } from './atomic.js';
+import { sitePdfPaths } from './site-pdfs.js';
 
 describe('compressTimeoutFor', () => {
   test('el tope crece con el tamaño del documento', () => {
-    const chico = compressTimeoutFor(1_000_000, 60_000);
-    const grande = compressTimeoutFor(100_000_000, 60_000);
-    assert.ok(grande > chico, 'un documento de 100 MB necesita más tiempo que uno de 1 MB');
+    assert.ok(compressTimeoutFor(100_000_000, 60_000) > compressTimeoutFor(1_000_000, 60_000));
   });
 
   test('nunca baja de la base', () => {
     assert.ok(compressTimeoutFor(0, 60_000) >= 60_000);
   });
 
-  test('el documento que falló en la corrida real ahora sí alcanza', () => {
-    // grupohule: full.pdf de ~104 MB se pasó del tope fijo de 180 s.
+  test('el documento que falló con el tope fijo ahora sí alcanza', () => {
+    // Un full.pdf de ~104 MB se pasaba del tope fijo de 180 s y se guardaba
+    // sin comprimir. Con el tope proporcional, no.
     assert.ok(compressTimeoutFor(104_569_414, 60_000) > 180_000);
   });
 
   test('tiene techo: un documento absurdo no bloquea la corrida para siempre', () => {
     assert.equal(compressTimeoutFor(10_000_000_000, 60_000), 900_000);
+  });
+});
+
+describe('sitePdfPaths', () => {
+  test('los dos archivos por sitio son los reportes de Lighthouse', () => {
+    const p = sitePdfPaths('/data/pdfs', 'matmarkt', 7);
+    assert.equal(p.desktop, '/data/pdfs/matmarkt/desktop.pdf');
+    assert.equal(p.mobile, '/data/pdfs/matmarkt/mobile.pdf');
+  });
+
+  test('el temporal vive junto al destino, para que rename sea atómico', () => {
+    const p = sitePdfPaths('/data/pdfs', 'matmarkt', 7);
+    assert.ok(p.tmpDir.startsWith('/data/pdfs/matmarkt/'), 'cruzar sistemas de archivos rompería la atomicidad');
+    assert.match(p.tmpDir, /\.tmp-7$/);
+  });
+
+  test('cada corrida usa su propio temporal', () => {
+    assert.notEqual(
+      sitePdfPaths('/data/pdfs', 'x', 1).tmpDir,
+      sitePdfPaths('/data/pdfs', 'x', 2).tmpDir,
+    );
+  });
+});
+
+describe('writeFileAtomic', () => {
+  test('escribe el archivo y devuelve su tamaño', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sitemon-'));
+    try {
+      const target = join(dir, 'a', 'b.pdf');
+      const bytes = await writeFileAtomic(target, new Uint8Array([1, 2, 3, 4]));
+      assert.equal(bytes, 4);
+      assert.deepEqual([...(await readFile(target))], [1, 2, 3, 4]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('reemplaza el archivo anterior de golpe, sin dejarlo a medias', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sitemon-'));
+    try {
+      const target = join(dir, 'x.pdf');
+      await writeFileAtomic(target, new Uint8Array(100));
+      await writeFileAtomic(target, new Uint8Array(20));
+      assert.equal((await stat(target)).size, 20);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('no deja .tmp huérfanos que confundan a la siguiente corrida', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sitemon-'));
+    try {
+      const target = join(dir, 'x.pdf');
+      await writeFileAtomic(target, new Uint8Array(10));
+      assert.equal(await fileSize(`${target}.tmp`), null);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('si falla la escritura, el archivo anterior queda intacto', async () => {
+    // Esta es LA garantía del sistema: una corrida rota nunca deja al usuario
+    // sin PDF. Se fuerza el fallo poniendo un directorio donde va el .tmp.
+    const dir = await mkdtemp(join(tmpdir(), 'sitemon-'));
+    try {
+      const target = join(dir, 'x.pdf');
+      await writeFile(target, new Uint8Array([9, 9, 9]));
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(`${target}.tmp`);
+
+      await assert.rejects(() => writeFileAtomic(target, new Uint8Array(50)));
+      assert.deepEqual([...(await readFile(target))], [9, 9, 9], 'el contenido anterior debe sobrevivir');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('fileSize', () => {
+  test('devuelve null en vez de lanzar cuando el archivo no existe', async () => {
+    assert.equal(await fileSize('/no/existe/en/ningun/lado.pdf'), null);
   });
 });

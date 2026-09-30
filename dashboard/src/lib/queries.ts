@@ -43,11 +43,12 @@ export interface OverviewRow {
   truncated: boolean;
   certValid: boolean | null;
   certDaysRemaining: number | null;
-  homePdfBytes: number | null;
-  homePdfGeneratedAt: Date | null;
-  fullPdfBytes: number | null;
-  fullPdfPages: number | null;
-  fullPdfGeneratedAt: Date | null;
+  desktopPdfBytes: number | null;
+  desktopPdfPages: number | null;
+  desktopPdfGeneratedAt: Date | null;
+  mobilePdfBytes: number | null;
+  mobilePdfPages: number | null;
+  mobilePdfGeneratedAt: Date | null;
   errorCategory: string | null;
   errorMessage: string | null;
   current: ByStrategy;
@@ -93,11 +94,12 @@ interface OverviewSqlRow extends Record<string, unknown> {
   truncated: boolean | null;
   cert_valid: boolean | null;
   cert_days_remaining: number | null;
-  home_pdf_bytes: number | null;
-  home_pdf_generated_at: Date | null;
-  full_pdf_bytes: number | null;
-  full_pdf_pages: number | null;
-  full_pdf_generated_at: Date | null;
+  desktop_pdf_bytes: number | null;
+  desktop_pdf_pages: number | null;
+  desktop_pdf_generated_at: Date | null;
+  mobile_pdf_bytes: number | null;
+  mobile_pdf_pages: number | null;
+  mobile_pdf_generated_at: Date | null;
   error_category: string | null;
   error_message: string | null;
   current_lh: ByStrategy | null;
@@ -126,8 +128,8 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
            u.id AS site_run_id, u.status, u.started_at, u.duration_ms,
            u.home_http_status, u.pages_audited, u.pages_failed, u.pages_discovered, u.truncated,
            u.cert_valid, u.cert_days_remaining,
-           u.home_pdf_bytes, u.home_pdf_generated_at,
-           u.full_pdf_bytes, u.full_pdf_pages, u.full_pdf_generated_at,
+           u.desktop_pdf_bytes, u.desktop_pdf_pages, u.desktop_pdf_generated_at,
+           u.mobile_pdf_bytes, u.mobile_pdf_pages, u.mobile_pdf_generated_at,
            u.error_category, u.error_message,
            lhu.by_strategy AS current_lh,
            lha.by_strategy AS previous_lh,
@@ -160,11 +162,12 @@ export async function fetchOverview(): Promise<OverviewRow[]> {
     truncated: r.truncated ?? false,
     certValid: r.cert_valid,
     certDaysRemaining: r.cert_days_remaining,
-    homePdfBytes: r.home_pdf_bytes,
-    homePdfGeneratedAt: r.home_pdf_generated_at,
-    fullPdfBytes: r.full_pdf_bytes,
-    fullPdfPages: r.full_pdf_pages,
-    fullPdfGeneratedAt: r.full_pdf_generated_at,
+    desktopPdfBytes: r.desktop_pdf_bytes,
+    desktopPdfPages: r.desktop_pdf_pages,
+    desktopPdfGeneratedAt: r.desktop_pdf_generated_at,
+    mobilePdfBytes: r.mobile_pdf_bytes,
+    mobilePdfPages: r.mobile_pdf_pages,
+    mobilePdfGeneratedAt: r.mobile_pdf_generated_at,
     errorCategory: r.error_category,
     errorMessage: r.error_message,
     current: r.current_lh ?? {},

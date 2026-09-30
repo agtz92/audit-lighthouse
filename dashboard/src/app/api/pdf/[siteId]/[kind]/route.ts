@@ -14,7 +14,8 @@ import { Readable } from 'node:stream';
 import { query } from '@/lib/db';
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-const KINDS = new Set(['home', 'full']);
+/** Los dos archivos por sitio son los reportes de Lighthouse. */
+const KINDS = new Set(['desktop', 'mobile']);
 
 export async function GET(
   _request: Request,
@@ -45,7 +46,7 @@ export async function GET(
     mtime = info.mtime;
   } catch {
     return new Response(
-      `Todavía no hay ${kind}.pdf para ${site.name}. Se genera en la siguiente corrida.`,
+      `Todavía no hay el reporte de Lighthouse ${kind} para ${site.name}. Se genera en la siguiente corrida.`,
       { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } },
     );
   }

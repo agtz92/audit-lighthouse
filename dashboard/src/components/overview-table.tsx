@@ -41,6 +41,36 @@ function Vital({ value, delta, kind }: { value: number | null; delta: number | n
   );
 }
 
+/**
+ * Enlace al reporte de Lighthouse de una estrategia.
+ *
+ * target="_blank" a propósito: el PDF se abre en una pestaña nueva y el
+ * dashboard se queda donde estaba. Sin eso, el navegador reemplaza la tabla por
+ * el visor de PDF y hay que volver atrás para seguir revisando sitios.
+ * rel="noreferrer noopener" acompaña siempre a target="_blank".
+ */
+function ReportLink({
+  siteId, strategy, bytes, pages,
+}: {
+  siteId: string;
+  strategy: 'desktop' | 'mobile';
+  bytes: number | null;
+  pages: number | null;
+}) {
+  const etiqueta = strategy === 'desktop' ? 'escritorio' : 'móvil';
+  if (bytes === null) return <span className="off">{etiqueta}</span>;
+  return (
+    <a
+      href={`/api/pdf/${siteId}/${strategy}`}
+      target="_blank"
+      rel="noreferrer noopener"
+      title={`Reporte de Lighthouse ${etiqueta} · ${fmtBytes(bytes)}${pages !== null ? ` · ${pages} hojas` : ''} · abre en otra pestaña`}
+    >
+      {etiqueta}
+    </a>
+  );
+}
+
 export function OverviewTable({ rows }: { rows: OverviewRow[] }) {
   if (rows.length === 0) {
     return <div className="empty">No hay sitios registrados. Agrega alguno a sites.yaml.</div>;
@@ -67,7 +97,7 @@ export function OverviewTable({ rows }: { rows: OverviewRow[] }) {
             <th>Certificado</th>
             <th className="num">Págs.</th>
             <th className="num">Corrida</th>
-            <th>PDFs</th>
+            <th>Reporte</th>
           </tr>
           <tr>
             <th colSpan={3} />
@@ -130,23 +160,18 @@ export function OverviewTable({ rows }: { rows: OverviewRow[] }) {
                 <td className="num">{fmtTime(row.startedAt)}</td>
                 <td>
                   <span className="dl">
-                    {row.homePdfBytes !== null ? (
-                      <a href={`/api/pdf/${row.siteId}/home`} title={`home.pdf · ${fmtBytes(row.homePdfBytes)}`}>
-                        home
-                      </a>
-                    ) : (
-                      <span className="off">home</span>
-                    )}
-                    {row.fullPdfBytes !== null ? (
-                      <a
-                        href={`/api/pdf/${row.siteId}/full`}
-                        title={`full.pdf · ${fmtBytes(row.fullPdfBytes)} · ${row.fullPdfPages ?? '?'} páginas`}
-                      >
-                        full
-                      </a>
-                    ) : (
-                      <span className="off">full</span>
-                    )}
+                    <ReportLink
+                      siteId={row.siteId}
+                      strategy="desktop"
+                      bytes={row.desktopPdfBytes}
+                      pages={row.desktopPdfPages}
+                    />
+                    <ReportLink
+                      siteId={row.siteId}
+                      strategy="mobile"
+                      bytes={row.mobilePdfBytes}
+                      pages={row.mobilePdfPages}
+                    />
                   </span>
                 </td>
               </tr>

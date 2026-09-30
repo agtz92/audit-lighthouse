@@ -1,31 +1,27 @@
 /**
- * Los dos PDFs de un sitio: home.pdf y full.pdf.
+ * Los dos PDFs de un sitio: desktop.pdf y mobile.pdf, cada uno con el reporte
+ * de Lighthouse de esa estrategia.
  *
- * Cada página se imprime a un archivo temporal dentro del mismo volumen, no a
- * memoria: 50 páginas de Chromium pueden ser 150 MB, y con dos sitios en paralelo
- * dentro de un contenedor de 2 GB eso se nota. Al final se leen en orden, se unen
- * y se renombran sobre los definitivos.
- *
- * La garantía que importa: si algo falla, no se renombra nada y los PDFs del día
- * anterior siguen intactos. Nunca se deja al usuario sin PDF por un error de red.
+ * La garantía que importa se mantiene: se escribe a un .tmp y se renombra solo
+ * al terminar bien, así que si una corrida falla los PDFs del día anterior
+ * quedan intactos. Nunca se deja al usuario sin PDF por un error.
  */
 
-import { mkdir, rm, readFile, readdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Page } from 'playwright';
+import type { Browser } from 'playwright';
 import { PDFDocument } from 'pdf-lib';
-import { renderPagePdf } from './render.js';
+import { renderReportPdf } from './report-pdf.js';
 import { writeFileAtomic } from './atomic.js';
-import { buildFullPdf, type PdfPart } from './merge.js';
 import { compressPdf, type PdfQuality } from './compress.js';
-import type { IndexMeta } from './index-page.js';
+import type { LighthouseStrategy } from '../audit/lighthouse.js';
 import type { PdfMeta } from '../db/runs.js';
 import type { Logger } from '../lib/logger.js';
 
 export interface SitePdfPaths {
   dir: string;
-  home: string;
-  full: string;
+  desktop: string;
+  mobile: string;
   tmpDir: string;
 }
 
@@ -33,172 +29,90 @@ export function sitePdfPaths(pdfDir: string, siteId: string, runId: number | str
   const dir = join(pdfDir, siteId);
   return {
     dir,
-    home: join(dir, 'home.pdf'),
-    full: join(dir, 'full.pdf'),
+    desktop: join(dir, 'desktop.pdf'),
+    mobile: join(dir, 'mobile.pdf'),
     // El temporal vive junto al destino para que rename(2) sea atómico: cruzar
     // sistemas de archivos lo convertiría en copiar y borrar.
     tmpDir: join(dir, `.tmp-${runId}`),
   };
 }
 
-/** Nombre del temporal de una página. El índice va con ceros para ordenar bien. */
-function pagePdfName(index: number): string {
-  return `${String(index).padStart(4, '0')}.pdf`;
-}
-
-export interface SitePdfCollectorOptions {
+export interface WriteReportOptions {
   paths: SitePdfPaths;
-  /** En dry-run se imprime igual (para medir el costo) pero no se escribe nada. */
-  dryRun: boolean;
-  log: Logger;
-  /** Perfil de compresión aplicado a los dos archivos finales. */
+  strategy: LighthouseStrategy;
+  html: string;
+  browser: Browser;
   quality: PdfQuality;
   compressTimeoutMs: number;
-  /** Tope para imprimir UNA página. page.pdf() no trae timeout propio. */
   renderTimeoutMs: number;
+  dryRun: boolean;
+  log: Logger;
 }
 
 /**
- * Acumula los PDFs de las páginas de un sitio y al final produce los dos archivos.
+ * Imprime, comprime y reemplaza el PDF de una estrategia.
+ * Devuelve null si algo falló: el archivo anterior se queda como estaba.
  */
-export class SitePdfCollector {
-  /** url -> nombre del archivo temporal. */
-  readonly #captured = new Map<string, string>();
-  #ready = false;
+export async function writeReportPdf(opts: WriteReportOptions): Promise<PdfMeta | null> {
+  const { paths, strategy, log } = opts;
+  const target = strategy === 'desktop' ? paths.desktop : paths.mobile;
 
-  constructor(private readonly opts: SitePdfCollectorOptions) {}
+  try {
+    const raw = await renderReportPdf(opts.browser, opts.html, { timeoutMs: opts.renderTimeoutMs });
+    const pages = (await PDFDocument.load(raw, { ignoreEncryption: true })).getPageCount();
 
-  async init(): Promise<void> {
-    if (this.opts.dryRun) {
-      this.#ready = true;
-      return;
-    }
-    // Un .tmp de una corrida anterior interrumpida no debe contaminar esta.
-    await rm(this.opts.paths.tmpDir, { recursive: true, force: true }).catch(() => {});
-    await mkdir(this.opts.paths.tmpDir, { recursive: true });
-    this.#ready = true;
-  }
-
-  /**
-   * Imprime la página actual. Se llama desde el hook `capture` del auditor, con
-   * la página ya cargada y medida, para no visitarla dos veces.
-   */
-  async capture(page: Page, url: string, index: number): Promise<void> {
-    if (!this.#ready) throw new Error('SitePdfCollector.init() no se llamó');
-    try {
-      const bytes = await renderPagePdf(page, url, this.opts.renderTimeoutMs);
-      if (this.opts.dryRun) {
-        this.#captured.set(url, `(dry-run ${bytes.byteLength} bytes)`);
-        return;
-      }
-      await writeFileAtomic(join(this.opts.paths.tmpDir, pagePdfName(index)), bytes);
-      this.#captured.set(url, pagePdfName(index));
-    } catch (err) {
-      // Una página que no se deja imprimir (un PDF incrustado, un canvas enorme)
-      // se queda fuera del full.pdf, pero su medición ya se tomó y vale.
-      this.opts.log.warn('no se pudo imprimir la página a PDF', {
-        url,
-        motivo: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  get capturedCount(): number {
-    return this.#captured.size;
-  }
-
-  /**
-   * Une lo capturado y reemplaza los dos archivos definitivos.
-   * `orderedUrls` fija el orden del documento: el del sitemap, no el de término.
-   */
-  async finalize(
-    orderedUrls: string[],
-    homeUrl: string | undefined,
-    meta: IndexMeta,
-  ): Promise<{ home: PdfMeta | null; full: (PdfMeta & { urls: number }) | null }> {
-    if (this.opts.dryRun) {
-      this.opts.log.info('dry-run: PDFs no escritos', { paginas_capturadas: this.#captured.size });
-      return { home: null, full: null };
+    if (opts.dryRun) {
+      log.info('dry-run: PDF no escrito', { archivo: strategy, bytes: raw.byteLength, paginas: pages });
+      return null;
     }
 
-    const generatedAt = new Date();
-    let home: PdfMeta | null = null;
-    let full: (PdfMeta & { urls: number }) | null = null;
-
-    try {
-      // ── home.pdf: solo la URL principal ────────────────────────────────────
-      const homeName = homeUrl === undefined ? undefined : this.#captured.get(homeUrl);
-      if (homeName !== undefined) {
-        const raw = await readFile(join(this.opts.paths.tmpDir, homeName));
-        const pages = (await PDFDocument.load(raw, { ignoreEncryption: true })).getPageCount();
-        const squeezed = await this.#compress(raw, 'home', pages);
-        const written = await writeFileAtomic(this.opts.paths.home, squeezed);
-        home = { bytes: written, pages, generatedAt };
-      } else {
-        this.opts.log.warn('home.pdf no se reemplaza: la URL principal no se pudo imprimir');
-      }
-
-      // ── full.pdf: índice + todas las páginas, en orden de descubrimiento ───
-      const parts: PdfPart[] = [];
-      for (const url of orderedUrls) {
-        const name = this.#captured.get(url);
-        if (name === undefined) continue; // no cargó: no hay nada que imprimir
-        parts.push({ url, bytes: await readFile(join(this.opts.paths.tmpDir, name)) });
-      }
-
-      if (parts.length > 0) {
-        const merged = await buildFullPdf(parts, meta);
-        const squeezed = await this.#compress(merged.bytes, 'full', merged.totalPages);
-        const written = await writeFileAtomic(this.opts.paths.full, squeezed);
-        full = { bytes: written, pages: merged.totalPages, generatedAt, urls: parts.length };
-      } else {
-        this.opts.log.warn('full.pdf no se reemplaza: ninguna página se pudo imprimir');
-      }
-
-      return { home, full };
-    } finally {
-      await this.cleanup();
-    }
-  }
-
-  /** Comprime y reporta cuánto se ganó; ante cualquier duda devuelve el original. */
-  async #compress(bytes: Uint8Array, name: string, expectedPages: number): Promise<Uint8Array> {
-    const result = await compressPdf(bytes, {
-      quality: this.opts.quality,
-      tmpDir: this.opts.paths.tmpDir,
-      name,
-      expectedPages,
-      timeoutMs: this.opts.compressTimeoutMs,
-      log: this.opts.log,
+    await mkdir(paths.tmpDir, { recursive: true });
+    const result = await compressPdf(raw, {
+      quality: opts.quality,
+      tmpDir: paths.tmpDir,
+      name: strategy,
+      expectedPages: pages,
+      timeoutMs: opts.compressTimeoutMs,
+      log,
     });
-    // Se registra SIEMPRE, se haya aplicado o no: un descarte silencioso hacía
-    // que un full.pdf de 100 MB simplemente no apareciera en el resumen.
+
+    // Se registra siempre, se haya comprimido o no: un descarte silencioso
+    // escondía archivos enormes del resumen.
     if (result.applied) {
-      this.opts.log.info('PDF comprimido', {
-        archivo: name,
+      log.info('PDF comprimido', {
+        archivo: strategy,
         antes_bytes: result.originalBytes,
         despues_bytes: result.finalBytes,
         reduccion: `${result.ratio.toFixed(1)}x`,
-        perfil: this.opts.quality,
+        perfil: opts.quality,
       });
     } else {
-      this.opts.log.warn('PDF guardado SIN comprimir', {
-        archivo: name,
+      log.warn('PDF guardado SIN comprimir', {
+        archivo: strategy,
         bytes: result.originalBytes,
         motivo: result.reason ?? 'desconocido',
       });
     }
-    return result.bytes;
-  }
 
-  async cleanup(): Promise<void> {
-    if (this.opts.dryRun) return;
-    await rm(this.opts.paths.tmpDir, { recursive: true, force: true }).catch(() => {});
+    const bytes = await writeFileAtomic(target, result.bytes);
+    log.info('PDF actualizado', { archivo: strategy, bytes, paginas: pages });
+    return { bytes, pages, generatedAt: new Date() };
+  } catch (err) {
+    // Que no se pueda imprimir el reporte no invalida las métricas: ya están
+    // guardadas. Y el PDF de ayer sigue en su lugar, que es lo que importa.
+    log.warn('no se pudo generar el PDF del reporte', {
+      archivo: strategy,
+      motivo: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  } finally {
+    await rm(paths.tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
 /** Limpia directorios .tmp-* olvidados por corridas que murieron a la mitad. */
 export async function cleanStaleTmpDirs(pdfDir: string, siteId: string): Promise<number> {
+  const { readdir } = await import('node:fs/promises');
   const dir = join(pdfDir, siteId);
   let removed = 0;
   try {

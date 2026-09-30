@@ -100,9 +100,6 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
             log,
             pdfDir: cfg.PDF_DIR,
             dryRun,
-            pdfQuality: cfg.PDF_QUALITY,
-            pdfCompressTimeoutMs: cfg.PDF_COMPRESS_TIMEOUT_MS,
-            pdfRenderTimeoutMs: cfg.PDF_RENDER_TIMEOUT_MS,
             siteBudgetMs: cfg.SITE_BUDGET_MINUTES * 60_000,
           });
         } finally {
@@ -122,6 +119,11 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
     deadline,
     dryRun,
     log,
+    pdfDir: cfg.PDF_DIR,
+    pdfQuality: cfg.PDF_QUALITY,
+    pdfCompressTimeoutMs: cfg.PDF_COMPRESS_TIMEOUT_MS,
+    pdfRenderTimeoutMs: cfg.PDF_RENDER_TIMEOUT_MS,
+    runId,
   });
 
   const sitesFailed = results.filter((r) => r.status === 'failed').length;

@@ -14,7 +14,7 @@
  */
 
 import { gzipSync } from 'node:zlib';
-import lighthouse, { desktopConfig } from 'lighthouse';
+import lighthouse, { desktopConfig, generateReport } from 'lighthouse';
 
 export type LighthouseStrategy = 'desktop' | 'mobile';
 
@@ -45,6 +45,11 @@ export interface LighthouseOutcome {
   version: string | null;
   /** Reporte JSON completo comprimido con gzip: ~50 KB en vez de ~600 KB. */
   rawGzip: Buffer | null;
+  /**
+   * El reporte en HTML, tal como lo genera Lighthouse. De aquí sale el PDF.
+   * No se guarda en la base: se imprime y se descarta.
+   */
+  html: string | null;
   error: string | null;
 }
 
@@ -81,7 +86,8 @@ export async function runLighthouse(
   timeoutMs: number,
 ): Promise<LighthouseOutcome> {
   const base: Omit<LighthouseOutcome, 'ok' | 'error'> = {
-    strategy, url, scores: EMPTY_SCORES, metrics: EMPTY_METRICS, version: null, rawGzip: null,
+    strategy, url, scores: EMPTY_SCORES, metrics: EMPTY_METRICS,
+    version: null, rawGzip: null, html: null,
   };
 
   try {
@@ -138,6 +144,7 @@ export async function runLighthouse(
         ttiMs: roundOrNull(numericValue(audits, 'interactive')),
       },
       rawGzip: gzipSync(Buffer.from(JSON.stringify(lhr), 'utf8')),
+      html: generateReport(lhr, 'html'),
       error: null,
     };
   } catch (err) {

@@ -21,6 +21,9 @@ import type { Deadline } from '../lib/deadline.js';
 import { launchBrowser, cdpPortForSlot } from '../audit/browser.js';
 import { runLighthouse, type LighthouseOutcome } from '../audit/lighthouse.js';
 import { insertLighthouseResult } from '../db/lighthouse.js';
+import { recordPdfMeta } from '../db/runs.js';
+import { sitePdfPaths, writeReportPdf, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
+import type { PdfQuality } from '../pdf/compress.js';
 import type { SiteRunResult } from './site-runner.js';
 
 export interface LighthousePhaseDeps {
@@ -29,6 +32,12 @@ export interface LighthousePhaseDeps {
   deadline: Deadline;
   dryRun: boolean;
   log: Logger;
+  /** Los dos PDFs por sitio son los reportes de Lighthouse, así que se generan aquí. */
+  pdfDir: string;
+  pdfQuality: PdfQuality;
+  pdfCompressTimeoutMs: number;
+  pdfRenderTimeoutMs: number;
+  runId: number | null;
 }
 
 export interface LighthousePhaseResult {
@@ -93,6 +102,9 @@ export async function runLighthousePhase(
         }
 
         const siteOutcomes: LighthouseOutcome[] = [];
+        await cleanStaleTmpDirs(deps.pdfDir, result.siteId);
+        const paths = sitePdfPaths(deps.pdfDir, result.siteId, deps.runId ?? 'dry-run');
+
         try {
           for (const strategy of ['desktop', 'mobile'] as const) {
             const outcome = await runLighthouse(result.homeUrl, port, strategy, deps.timeoutMs);
@@ -100,6 +112,25 @@ export async function runLighthousePhase(
 
             if (!deps.dryRun && result.siteRunId !== null) {
               await insertLighthouseResult(result.siteRunId, result.siteId, outcome);
+            }
+
+            // El PDF sale del reporte que acabamos de generar, impreso en el
+            // mismo navegador. Si falla, el del día anterior queda intacto.
+            if (outcome.ok && outcome.html !== null) {
+              const meta = await writeReportPdf({
+                paths,
+                strategy,
+                html: outcome.html,
+                browser,
+                quality: deps.pdfQuality,
+                compressTimeoutMs: deps.pdfCompressTimeoutMs,
+                renderTimeoutMs: deps.pdfRenderTimeoutMs,
+                dryRun: deps.dryRun,
+                log,
+              });
+              if (!deps.dryRun && result.siteRunId !== null) {
+                await recordPdfMeta(result.siteRunId, strategy, meta);
+              }
             }
 
             if (outcome.ok) {

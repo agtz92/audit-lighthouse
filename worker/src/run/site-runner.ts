@@ -17,10 +17,8 @@ import { auditPage, type ErrorCategory, type PageMetrics } from '../audit/page-m
 import { checkCertificate, type CertInfo } from '../audit/tls.js';
 import { discoverPages, finalizeUrlList, type DiscoveryMethod } from '../discovery/index.js';
 import { harvestRenderedLinks } from '../discovery/rendered.js';
-import { startSiteRun, finishSiteRun, recordPdfMeta, type SiteRunStatus } from '../db/runs.js';
+import { startSiteRun, finishSiteRun, type SiteRunStatus } from '../db/runs.js';
 import { insertPageResults, type PageRow } from '../db/results.js';
-import { SitePdfCollector, sitePdfPaths, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
-import type { PdfQuality } from '../pdf/compress.js';
 import { withTimeout, withTimeoutOr, TimeoutError } from '../lib/timeout.js';
 
 export interface RunSiteDeps {
@@ -35,9 +33,6 @@ export interface RunSiteDeps {
   pdfDir: string;
   /** En dry-run no se escribe en la base ni se reemplazan los PDFs. */
   dryRun: boolean;
-  pdfQuality: PdfQuality;
-  pdfCompressTimeoutMs: number;
-  pdfRenderTimeoutMs: number;
   /** Tope propio del sitio, además del presupuesto global de la corrida. */
   siteBudgetMs: number;
 }
@@ -158,19 +153,6 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
 
     const homeUrl = urls[0];
     base.homeUrl = homeUrl ?? null;
-    const orderIndex = new Map(urls.map((u, i) => [u, i]));
-
-    await cleanStaleTmpDirs(deps.pdfDir, site.id);
-    const paths = sitePdfPaths(deps.pdfDir, site.id, deps.runId ?? 'dry-run');
-    const pdfs = new SitePdfCollector({
-      paths,
-      dryRun: deps.dryRun,
-      log,
-      quality: deps.pdfQuality,
-      compressTimeoutMs: deps.pdfCompressTimeoutMs,
-      renderTimeoutMs: deps.pdfRenderTimeoutMs,
-    });
-    await pdfs.init();
 
     const limit = pLimit(deps.pageConcurrency);
     const results = new Map<string, PageMetrics>();
@@ -180,15 +162,28 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
         limit(async () => {
           // Al agotarse el presupuesto dejamos de empezar páginas nuevas; las que
           // ya estaban en vuelo terminan, para no guardar mediciones a medias.
-          if (deps.deadline.expired) {
+          if (siteExpired()) {
             base.abortedByDeadline = true;
             return;
           }
-          const metrics = await auditPage(context as BrowserContext, url, site, {
-            // El PDF se imprime en esta misma visita: volver a cargar cada página
-            // solo para imprimirla duplicaría el costo de la corrida completa.
-            capture: (page, capturedUrl) => pdfs.capture(page, capturedUrl, orderIndex.get(url) ?? 0),
-          });
+          // Tope duro por página. Consultar el reloj SOLO entre páginas no basta:
+          // si una sola página no termina nunca, la corrida se queda abierta
+          // indefinidamente. Medido aquí: un sitio pasó 29 minutos sin escribir
+          // una línea de log mientras el resto de la corrida ya estaba abortado.
+          const presupuestoPagina = Math.min(site.timeoutMs * 2 + 15_000, siteRemainingMs());
+          let metrics: PageMetrics;
+          try {
+            metrics = await withTimeout(
+              auditPage(context as BrowserContext, url, site),
+              Math.max(5000, presupuestoPagina),
+              `auditoría de ${url}`,
+            );
+          } catch (err) {
+            if (!(err instanceof TimeoutError)) throw err;
+            base.abortedByDeadline = true;
+            log.warn('página cortada por tiempo', { url, motivo: err.message });
+            return;
+          }
           results.set(url, metrics);
           if (!metrics.ok) {
             log.warn('página con error', {
@@ -218,35 +213,6 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     if (persist && base.pages.length > 0) {
       await insertPageResults(siteRunId as number, site.id, base.pages);
     }
-
-    // Los dos PDFs se arman al final, en orden de descubrimiento y no de término.
-    // El ensamblado también lleva tope: unir y comprimir documentos grandes con
-    // la memoria al tope se vuelve muy lento, y sin este límite el sitio nunca
-    // terminaba. Si se corta, los PDFs del día anterior quedan intactos.
-    const pdfMeta = await withTimeoutOr(
-      pdfs.finalize(urls, homeUrl, {
-        siteName: site.name,
-        siteUrl: site.url,
-        generatedAt: new Date(),
-        discovered: base.pagesDiscovered,
-        truncated: base.truncated,
-        maxPages: site.maxPages,
-        failed: base.pagesAudited - pdfs.capturedCount,
-      }),
-      Math.max(60_000, siteRemainingMs() + 120_000),
-      'ensamblado de los PDFs',
-      { home: null, full: null },
-      (err) => log.warn('ensamblado de PDFs cortado por tiempo', { motivo: err.message }),
-    );
-    if (persist && (pdfMeta.home !== null || pdfMeta.full !== null)) {
-      await recordPdfMeta(siteRunId as number, pdfMeta.home, pdfMeta.full);
-    }
-    log.info('PDFs actualizados', {
-      home_bytes: pdfMeta.home?.bytes ?? null,
-      full_bytes: pdfMeta.full?.bytes ?? null,
-      full_paginas: pdfMeta.full?.pages ?? null,
-      full_urls: pdfMeta.full?.urls ?? null,
-    });
 
     const home = base.pages.find((p) => p.isHome);
 

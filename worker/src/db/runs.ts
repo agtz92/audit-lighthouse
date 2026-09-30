@@ -127,37 +127,33 @@ export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome):
   );
 }
 
-/** Metadatos de los PDFs, escritos por la fase 3 cuando los archivos ya están en su sitio. */
+/** Metadatos de un PDF ya escrito en su lugar definitivo. */
 export interface PdfMeta {
   bytes: number;
   pages: number;
   generatedAt: Date;
 }
 
+/**
+ * Registra el PDF de una estrategia. Se llama una vez por estrategia, conforme
+ * cada reporte se imprime, y no al final: si la corrida se corta a la mitad,
+ * lo que sí se generó queda registrado.
+ *
+ * El COALESCE conserva lo que ya hubiera: un reporte que no se pudo imprimir
+ * deja el metadato del día anterior, igual que deja el archivo del día anterior.
+ */
 export async function recordPdfMeta(
   siteRunId: number,
-  home: PdfMeta | null,
-  full: (PdfMeta & { urls: number }) | null,
+  strategy: 'desktop' | 'mobile',
+  meta: PdfMeta | null,
 ): Promise<void> {
+  if (meta === null) return;
+  const cols = strategy === 'desktop'
+    ? ['desktop_pdf_bytes', 'desktop_pdf_pages', 'desktop_pdf_generated_at']
+    : ['mobile_pdf_bytes', 'mobile_pdf_pages', 'mobile_pdf_generated_at'];
+
   await db().query(
-    `UPDATE site_runs SET
-       home_pdf_bytes        = COALESCE($2, home_pdf_bytes),
-       home_pdf_pages        = COALESCE($3, home_pdf_pages),
-       home_pdf_generated_at = COALESCE($4, home_pdf_generated_at),
-       full_pdf_bytes        = COALESCE($5, full_pdf_bytes),
-       full_pdf_pages        = COALESCE($6, full_pdf_pages),
-       full_pdf_urls         = COALESCE($7, full_pdf_urls),
-       full_pdf_generated_at = COALESCE($8, full_pdf_generated_at)
-     WHERE id = $1`,
-    [
-      siteRunId,
-      home?.bytes ?? null,
-      home?.pages ?? null,
-      home?.generatedAt ?? null,
-      full?.bytes ?? null,
-      full?.pages ?? null,
-      full?.urls ?? null,
-      full?.generatedAt ?? null,
-    ],
+    `UPDATE site_runs SET ${cols[0]} = $2, ${cols[1]} = $3, ${cols[2]} = $4 WHERE id = $1`,
+    [siteRunId, meta.bytes, meta.pages, meta.generatedAt],
   );
 }

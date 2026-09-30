@@ -95,8 +95,13 @@ export default async function SitePage({
           </span>
           <div style={{ flex: 1 }} />
           <span className="dl">
-            <a href={`/api/pdf/${siteId}/home`}>home.pdf</a>
-            <a href={`/api/pdf/${siteId}/full`}>full.pdf</a>
+            {/* En pestaña nueva: abrir un PDF no debe sacarte del dashboard. */}
+            <a href={`/api/pdf/${siteId}/desktop`} target="_blank" rel="noreferrer noopener">
+              reporte escritorio
+            </a>
+            <a href={`/api/pdf/${siteId}/mobile`} target="_blank" rel="noreferrer noopener">
+              reporte móvil
+            </a>
           </span>
           <RangePicker basePath={`/sites/${siteId}`} current={range} />
         </header>
