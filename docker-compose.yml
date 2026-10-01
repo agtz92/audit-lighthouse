@@ -71,6 +71,7 @@ services:
       REPORT_AUTHOR_ROLE: ${REPORT_AUTHOR_ROLE:-Consultor en soluciones de software e inteligencia artificial}
       REPORT_AUTHOR_CREDENTIALS: ${REPORT_AUTHOR_CREDENTIALS:-ITE 2016 · MNA 2027}
       SITES_FILE: ${SITES_FILE:-/app/config/sites.yaml}
+      CONTROL_PORT: ${CONTROL_PORT:-8099}
       PDF_DIR: ${PDF_DIR:-/data/pdfs}
       PDF_QUALITY: ${PDF_QUALITY:-ebook}
       PDF_COMPRESS_TIMEOUT_MS: ${PDF_COMPRESS_TIMEOUT_MS:-60000}
@@ -82,6 +83,12 @@ services:
       # Se monta el DIRECTORIO, no el archivo suelto. Ver la nota del dashboard:
       # montar sites.yaml directamente impide que el dashboard lo reescriba.
       - ./config:/app/config:ro
+    # `expose`, NO `ports`: el endpoint de control queda disponible para el
+    # dashboard dentro de la red de Compose y no se publica al host. Es lo que
+    # mantiene el disparo manual de auditorías fuera del alcance de la LAN salvo
+    # a través del dashboard.
+    expose:
+      - "${CONTROL_PORT:-8099}"
     # Permite que WEBHOOK_URL apunte a un servicio del host (host.docker.internal).
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -108,6 +115,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-sitemon}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sitemon}
       PDF_DIR: /data/pdfs
       SITES_FILE: /app/config/sites.yaml
+      # Por aquí el dashboard le pide al worker auditorías a mano. El nombre
+      # `worker` lo resuelve la red de Compose; desde fuera no existe.
+      WORKER_URL: http://worker:${CONTROL_PORT:-8099}
       TZ: *tz
     volumes:
       # Solo lectura: el dashboard sirve los PDFs, nunca los escribe.

@@ -11,6 +11,44 @@ export type RunTrigger = 'scheduled' | 'manual' | 'recovery';
 export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
 export type SiteRunStatus = 'running' | 'ok' | 'partial' | 'failed' | 'skipped_timeout';
 
+/**
+ * Cierra las corridas que quedaron marcadas como en curso.
+ *
+ * Se llama al arrancar el worker, y ahí "en curso" solo puede significar una
+ * cosa: el proceso murió a media corrida y nadie escribió su final. El worker es
+ * lo único que crea corridas y corre una a la vez, así que al arrancar no puede
+ * haber ninguna viva.
+ *
+ * Sin esto quedan huérfanas para siempre: pasó de verdad con la corrida
+ * programada del 1 de octubre, que se quedó en 'running' con cero sitios cuando
+ * el worker se reinició a los catorce minutos. Ensucian el histórico y, peor,
+ * hacen que cualquier consulta de "¿qué está corriendo?" conteste que sí.
+ *
+ * Una corrida lanzada desde el CLI en otro contenedor se corregiría sola al
+ * terminar, porque finishRun escribe su estado sin consultar el anterior.
+ */
+export async function closeOrphanRuns(): Promise<{ runs: number; siteRuns: number }> {
+  const sitios = await db().query(
+    `UPDATE site_runs
+        SET status = 'failed',
+            finished_at = now(),
+            error_category = 'unknown',
+            error_message = 'el worker se reinició durante la corrida'
+      WHERE status = 'running'`,
+  );
+
+  const corridas = await db().query(
+    `UPDATE runs
+        SET status = 'failed',
+            finished_at = now(),
+            duration_ms = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::integer,
+            notes = 'el worker se reinició durante la corrida; quedó sin terminar'
+      WHERE status = 'running'`,
+  );
+
+  return { runs: corridas.rowCount ?? 0, siteRuns: sitios.rowCount ?? 0 };
+}
+
 export async function startRun(trigger: RunTrigger): Promise<number> {
   const { rows } = await db().query<{ id: number }>(
     `INSERT INTO runs (trigger, status) VALUES ($1, 'running') RETURNING id`,

@@ -37,6 +37,11 @@ const envSchema = z.object({
   SCHEDULE_CRON: str('0 6 * * *'),
   RECOVERY_RUN_ON_BOOT: bool(true),
 
+  // Puerto del endpoint de control, por donde el dashboard pide auditorías a
+  // mano. NO se publica al host en docker-compose: solo existe dentro de la red
+  // de Compose, así que lo alcanza el dashboard y nada más.
+  CONTROL_PORT: int(8099, 1, 65_535),
+
   CONCURRENCY: int(2, 1, 16),
   PAGE_CONCURRENCY: int(3, 1, 16),
   LIGHTHOUSE_CONCURRENCY: int(1, 1, 8),

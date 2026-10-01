@@ -161,3 +161,7 @@ sites:
     sitemap: https://www.sombrealo.com/sitemap.xml
     enabled: true
     maxPages: 5
+  - id: sombrealovercel
+    name: Sombrealo Nuevo
+    url: https://sombrealo.vercel.app/
+    enabled: true

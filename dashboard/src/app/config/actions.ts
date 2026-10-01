@@ -22,6 +22,7 @@ import {
   pagesInputSchema,
   SitesFileError,
 } from '@/lib/sites-file';
+import { requestRun } from '@/lib/worker-control';
 
 export interface ActionResult {
   ok: boolean;
@@ -154,5 +155,32 @@ export async function guardarPaginas(_prev: ActionResult | null, form: FormData)
       parsed.data.pages.length === 0
         ? 'Sin páginas elegidas: el sitio vuelve a descubrirlas solo en la próxima corrida.'
         : `${parsed.data.pages.length} página(s) elegidas. Se auditarán en la próxima corrida.`,
+  };
+}
+
+/**
+ * Pide al worker auditar un sitio ahora mismo.
+ *
+ * La acción vuelve en cuanto la corrida queda registrada, no cuando termina: una
+ * auditoría completa de un sitio toma varios minutos —descubrimiento, páginas,
+ * Lighthouse en escritorio y móvil, los dos PDFs— y dejar el formulario colgado
+ * todo ese rato no le sirve a nadie. El avance se ve en Panorama.
+ */
+export async function auditarSitio(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const id = String(form.get('id') ?? '');
+  if (id === '') return { ok: false, message: 'Falta el identificador del sitio.' };
+
+  const r = await requestRun(id);
+  if (!r.ok) return { ok: false, message: r.message };
+
+  // La corrida escribe en la base conforme avanza; estas vistas la leen.
+  revalidatePath('/');
+  revalidatePath('/config');
+  revalidatePath(`/config/${id}`);
+  revalidatePath(`/sites/${id}`);
+
+  return {
+    ok: true,
+    message: `Auditoría #${r.runId ?? '?'} en marcha. Toma unos minutos; puedes seguirla en Panorama.`,
   };
 }

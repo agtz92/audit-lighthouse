@@ -71,6 +71,17 @@ reescribe de forma atómica (temporal + `rename`) y `rename` sobre un bind mount
 de archivo devuelve `EBUSY`: hay que montar el directorio. `config/` es además lo
 único que el dashboard puede escribir.
 
+### Auditar un sitio ahora
+
+El botón **Auditar ahora**, en la lista de sitios y en la pantalla de cada uno,
+corre ese sitio en el momento sin esperar a las 06:00. El worker hace una
+auditoría a la vez: si ya hay una en curso lo dice y no la encima.
+
+El dashboard no audita —no tiene Chromium ni escribe en la base—; se lo pide al
+worker por un endpoint de control en la red interna de Compose. Ese puerto se
+declara con `expose` y **no** se publica al host, así que solo lo alcanza el
+dashboard. Equivale a `npm run check -- --site=mi-sitio`, pero desde la pantalla.
+
 ### Elegir las páginas que se auditan
 
 Sin `pages`, cada sitio audita las primeras `maxPages` URLs de su sitemap, que es

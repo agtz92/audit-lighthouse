@@ -4,6 +4,7 @@ import { readSitesFile, SitesFileError, SITES_FILE } from '@/lib/sites-file';
 import { fetchSitePageOptions } from '@/lib/queries';
 import { EditSiteForm } from '@/components/edit-site-form';
 import { PagePicker } from '@/components/page-picker';
+import { AuditNow } from '@/components/audit-now';
 import { fmtDateTime, DISCOVERY_LABELS } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,9 @@ export default async function SiteConfigPage({ params }: { params: Promise<{ sit
         </header>
         <div style={{ padding: '14px 12px' }}>
           <EditSiteForm site={site} defaultMaxPages={archivo.defaults.maxPages} />
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <AuditNow id={site.id} name={site.name} />
+          </div>
         </div>
       </div>
 

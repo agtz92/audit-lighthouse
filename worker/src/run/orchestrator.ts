@@ -24,6 +24,14 @@ export interface RunAuditOptions {
   /** Sin escrituras en la base ni reemplazo de PDFs. */
   dryRun?: boolean;
   log?: Logger;
+  /**
+   * Se llama en cuanto la corrida existe en la base, antes de auditar nada.
+   *
+   * Lo usa el endpoint de control para contestarle al dashboard con el id y
+   * colgar la petición HTTP, en vez de dejarla abierta los minutos que dura la
+   * auditoría completa.
+   */
+  onStart?: (runId: number) => void;
 }
 
 export interface RunSummary {
@@ -67,6 +75,7 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
   if (!dryRun) await syncSites(all);
 
   const runId = dryRun ? null : await startRun(opts.trigger);
+  if (runId !== null) opts.onStart?.(runId);
   const log = (opts.log ?? rootLog).child({ run_id: runId ?? 'dry-run', trigger: opts.trigger });
 
   const deadline = new Deadline(cfg.RUN_BUDGET_MINUTES * 60_000);

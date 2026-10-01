@@ -3,6 +3,7 @@ import { readSitesFile, SitesFileError, SITES_FILE } from '@/lib/sites-file';
 import { fetchOverview } from '@/lib/queries';
 import { SiteForm } from '@/components/site-form';
 import { ToggleSite, RemoveSite } from '@/components/site-row-actions';
+import { AuditNow } from '@/components/audit-now';
 import { StatusBadge } from '@/components/indicators';
 import { fmtDateTime } from '@/lib/format';
 
@@ -96,6 +97,7 @@ export default async function ConfigPage() {
                         : <span className="status warning"><span className="dot" aria-hidden="true" />En pausa</span>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
+                      <AuditNow id={e.id} name={e.name} compacto />{' '}
                       <Link href={`/config/${e.id}`} className="ghost-link">Editar</Link>{' '}
                       <ToggleSite id={e.id} enabled={e.enabled} />{' '}
                       <RemoveSite id={e.id} name={e.name} />
@@ -124,6 +126,10 @@ export default async function ConfigPage() {
           <p style={{ marginTop: 0 }}>
             Todo lo que edites aquí se escribe en <code>sites.yaml</code>, el mismo archivo que puedes
             editar a mano. Los comentarios del archivo se conservan.
+          </p>
+          <p>
+            <strong>Auditar ahora</strong> corre ese sitio en el momento, sin esperar a las 06:00.
+            El worker hace una auditoría a la vez: si ya hay una en curso te lo dice y no la encima.
           </p>
           <p>
             <strong>Editar</strong> abre el sitio para cambiar su nombre, su URL, su sitemap y,
