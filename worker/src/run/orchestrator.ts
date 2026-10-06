@@ -4,6 +4,7 @@
  */
 
 import pLimit from 'p-limit';
+import { getHeapStatistics } from 'node:v8';
 import { env } from '../config/env.js';
 import { loadSitesConfig, type ResolvedSite } from '../config/sites.js';
 import { Deadline, SlotPool } from '../lib/deadline.js';
@@ -162,6 +163,12 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
     });
   }
 
+  // El heap va en el log porque su crecimiento no se ve por ningún otro lado.
+  // Cuando la corrida de las 06:00 murió con "Reached heap limit", el dashboard
+  // solo mostró "failed, 0 sitios" y el único rastro del motivo era un stack de
+  // V8 en docker logs. Una corrida completa deja el heap cerca del techo, así
+  // que esta línea es la que avisa si el margen se está cerrando.
+  const heap = getHeapStatistics();
   log.info('corrida terminada', {
     estado: status,
     ok: sitesOk,
@@ -169,6 +176,8 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
     omitidos: sitesSkipped,
     presupuesto_agotado: budgetExceeded,
     duracion_ms: durationMs,
+    heap_usado_mb: Math.round(heap.used_heap_size / 1048576),
+    heap_limite_mb: Math.round(heap.heap_size_limit / 1048576),
   });
 
   const summary: RunSummary = {

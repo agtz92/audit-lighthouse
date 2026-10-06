@@ -26,7 +26,7 @@ import type { ResolvedSite } from '../config/sites.js';
 import type { Logger } from '../lib/logger.js';
 import type { Deadline } from '../lib/deadline.js';
 import { launchBrowser, cdpPortForSlot } from '../audit/browser.js';
-import { runLighthouse, isComplete, type LighthouseOutcome } from '../audit/lighthouse.js';
+import { runLighthouse, isComplete } from '../audit/lighthouse.js';
 import { insertLighthouseResult } from '../db/lighthouse.js';
 import { recordPdfMeta } from '../db/runs.js';
 import { fetchPreviousForReport } from '../db/snapshots.js';
@@ -61,11 +61,23 @@ export interface LighthousePhaseDeps {
   consultant: { name: string; role: string; credentials: string };
 }
 
+/**
+ * Solo cuentas, a propósito.
+ *
+ * Esto devolvía además un Map con los `LighthouseOutcome` completos de todos los
+ * sitios, y cada uno carga el LHR entero —el reporte de Lighthouse sin recortar,
+ * varios MB en el heap—. Con veinte sitios por dos estrategias eran cuarenta
+ * reportes vivos hasta el final de la fase, y nadie los leía: el orquestador
+ * llama a esta función sin guardar lo que devuelve. Eso tumbó la corrida de las
+ * 06:00 cuatro días seguidos con "Reached heap limit".
+ *
+ * Lo que un llamador podría querer ya está en la base: `lighthouse_results`
+ * guarda scores, métricas y el reporte comprimido.
+ */
 export interface LighthousePhaseResult {
   measured: number;
   skipped: number;
   failed: number;
-  outcomes: Map<string, LighthouseOutcome[]>;
 }
 
 /** ¿Vale la pena medir el rendimiento de este sitio? */
@@ -84,7 +96,6 @@ export async function runLighthousePhase(
   deps: LighthousePhaseDeps,
 ): Promise<LighthousePhaseResult> {
   const candidates = results.filter(shouldMeasure);
-  const outcomes = new Map<string, LighthouseOutcome[]>();
   let measured = 0;
   let failed = 0;
   let skipped = results.length - candidates.length;
@@ -129,7 +140,6 @@ export async function runLighthousePhase(
           return;
         }
 
-        const siteOutcomes: LighthouseOutcome[] = [];
         await cleanStaleTmpDirs(deps.pdfDir, result.siteId);
         const paths = sitePdfPaths(deps.pdfDir, result.siteId, deps.runId ?? 'dry-run');
         /** Lo que hay que imprimir, una vez cerrado el navegador de Lighthouse. */
@@ -166,8 +176,6 @@ export async function runLighthousePhase(
                 intentos: MAX_INTENTOS,
               });
             }
-
-            siteOutcomes.push(outcome);
 
             if (!deps.dryRun && result.siteRunId !== null) {
               await insertLighthouseResult(result.siteRunId, result.siteId, outcome);
@@ -214,6 +222,15 @@ export async function runLighthousePhase(
               porImprimir.push({ strategy, html, footerLeft: footerLeftText(datos) });
             }
 
+            // El LHR y su gzip ya cumplieron: la fila quedó escrita arriba y el
+            // HTML del informe ya está armado —`buildReportData` copia lo que
+            // necesita a objetos propios, no guarda referencias al reporte—. Se
+            // sueltan aquí, dentro del ciclo, para que el recolector se los
+            // pueda llevar mientras la fase sigue con el resto de los sitios.
+            // Sin esto el heap crece sitio por sitio hasta topar el límite.
+            outcome.lhr = null;
+            outcome.rawGzip = null;
+
             if (isComplete(outcome)) {
               measured += 1;
               log.info('lighthouse', {
@@ -259,7 +276,6 @@ export async function runLighthousePhase(
           }
         }
 
-        outcomes.set(result.siteId, siteOutcomes);
       }),
     ),
   );
@@ -267,5 +283,5 @@ export async function runLighthousePhase(
   await printer?.close().catch(() => {});
 
   deps.log.info('fase de lighthouse terminada', { medidos: measured, fallidos: failed, omitidos: skipped });
-  return { measured, skipped, failed, outcomes };
+  return { measured, skipped, failed };
 }
