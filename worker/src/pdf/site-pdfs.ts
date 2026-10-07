@@ -18,28 +18,56 @@ import type { LighthouseStrategy } from '../audit/lighthouse.js';
 import type { PdfMeta } from '../db/runs.js';
 import type { Logger } from '../lib/logger.js';
 
+/**
+ * Los cuatro documentos de un sitio. Escritorio, móvil e integral los escribe
+ * el worker al terminar Lighthouse; el de tráfico, el servicio analytics.
+ */
+export type PdfKind = LighthouseStrategy | 'analitica' | 'integral';
+export const PDF_KINDS: readonly PdfKind[] = ['desktop', 'mobile', 'analitica', 'integral'];
+
+/**
+ * Quién escribe. Los dos procesos comparten la carpeta de cada sitio, así que
+ * sus temporales se nombran distinto: la limpieza de uno no puede llevarse el
+ * temporal que el otro está usando en ese momento.
+ */
+export type PdfWriter = 'worker' | 'analytics';
+
 export interface SitePdfPaths {
   dir: string;
   desktop: string;
   mobile: string;
+  analitica: string;
+  integral: string;
   tmpDir: string;
 }
 
-export function sitePdfPaths(pdfDir: string, siteId: string, runId: number | string): SitePdfPaths {
+function tmpPrefix(writer: PdfWriter): string {
+  return writer === 'worker' ? '.tmp-' : '.tmp-analytics-';
+}
+
+export function sitePdfPaths(
+  pdfDir: string,
+  siteId: string,
+  runId: number | string,
+  writer: PdfWriter = 'worker',
+): SitePdfPaths {
   const dir = join(pdfDir, siteId);
   return {
     dir,
     desktop: join(dir, 'desktop.pdf'),
     mobile: join(dir, 'mobile.pdf'),
+    analitica: join(dir, 'analitica.pdf'),
+    integral: join(dir, 'integral.pdf'),
     // El temporal vive junto al destino para que rename(2) sea atómico: cruzar
     // sistemas de archivos lo convertiría en copiar y borrar.
-    tmpDir: join(dir, `.tmp-${runId}`),
+    tmpDir: join(dir, `${tmpPrefix(writer)}${runId}`),
   };
 }
 
 export interface WriteReportOptions {
   paths: SitePdfPaths;
-  strategy: LighthouseStrategy;
+  /** Cuál de los cuatro documentos. Antes se llamaba strategy y solo había dos. */
+  strategy: PdfKind;
   html: string;
   browser: Browser;
   quality: PdfQuality;
@@ -57,7 +85,7 @@ export interface WriteReportOptions {
  */
 export async function writeReportPdf(opts: WriteReportOptions): Promise<PdfMeta | null> {
   const { paths, strategy, log } = opts;
-  const target = strategy === 'desktop' ? paths.desktop : paths.mobile;
+  const target = paths[strategy];
 
   try {
     const raw = await renderReportPdf(opts.browser, opts.html, {
@@ -115,14 +143,22 @@ export async function writeReportPdf(opts: WriteReportOptions): Promise<PdfMeta 
   }
 }
 
-/** Limpia directorios .tmp-* olvidados por corridas que murieron a la mitad. */
-export async function cleanStaleTmpDirs(pdfDir: string, siteId: string): Promise<number> {
+/**
+ * Limpia los temporales olvidados por corridas que murieron a la mitad. Cada
+ * proceso limpia solo los suyos: los de analytics empiezan también con
+ * `.tmp-`, y el worker se los llevaría a media impresión.
+ */
+export async function cleanStaleTmpDirs(pdfDir: string, siteId: string, writer: PdfWriter = 'worker'): Promise<number> {
   const { readdir } = await import('node:fs/promises');
   const dir = join(pdfDir, siteId);
+  const propio = (name: string): boolean =>
+    writer === 'analytics'
+      ? name.startsWith(tmpPrefix('analytics'))
+      : name.startsWith(tmpPrefix('worker')) && !name.startsWith(tmpPrefix('analytics'));
   let removed = 0;
   try {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.startsWith('.tmp-')) {
+      if (entry.isDirectory() && propio(entry.name)) {
         await rm(join(dir, entry.name), { recursive: true, force: true }).catch(() => {});
         removed += 1;
       }

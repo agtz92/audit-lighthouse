@@ -25,6 +25,10 @@
 
   --series-desktop: #2a78d6;
   --series-mobile: #eb6834;
+  /* Tráfico: periodo actual contra el anterior. No reutiliza azul ni naranja,
+     que en toda la app significan escritorio y móvil. */
+  --series-current: #16355e;
+  --series-prev: #a9a79e;
 
   --good: #0ca30c;
   --warning: #fab219;
@@ -63,6 +67,8 @@
 
     --series-desktop: #3987e5;
     --series-mobile: #d95926;
+    --series-current: #8fb3e6;
+    --series-prev: #6b6a64;
 
     --good-wash: rgba(12, 163, 12, 0.14);
     --warning-wash: rgba(250, 178, 25, 0.14);
@@ -90,6 +96,8 @@
 
   --series-desktop: #3987e5;
   --series-mobile: #d95926;
+  --series-current: #8fb3e6;
+  --series-prev: #6b6a64;
 
   --good-wash: rgba(12, 163, 12, 0.14);
   --warning-wash: rgba(250, 178, 25, 0.14);
@@ -460,6 +468,79 @@ button.ghost.danger:hover { background: var(--critical-wash); }
 }
 .now .n { font-size: 10.5px; color: var(--ink-2); margin-top: 1px; }
 
+/* ── Tráfico (Search Console y GA4) ──────────────────────────────────────── */
+.conn { display: inline-flex; gap: 10px; font-size: 11px; }
+.conn .status { font-weight: 500; }
+.conn-line {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline;
+  padding: 8px 12px 10px; font-size: 11.5px;
+}
+.conn-line code, .sa-box code, .checks code {
+  font-family: var(--mono); font-size: 11px; background: var(--plane);
+  padding: 1px 5px; border-radius: 3px; word-break: break-all;
+}
+.muted { color: var(--ink-muted); font-weight: 400; }
+
+.subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.subtabs a {
+  padding: 5px 10px; font-size: 12.5px; color: var(--ink-2);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.subtabs a:hover { text-decoration: none; color: var(--ink); }
+.subtabs a.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+
+.chart-card h3.chart-title { display: flex; align-items: baseline; gap: 8px; }
+.chart-card h3.chart-title .big { margin-left: auto; font-size: 14px; font-weight: 620; font-variant-numeric: tabular-nums; }
+.chart-legend i.dashed { background: none; border-top: 2px dashed var(--series-prev); height: 0; }
+
+.two-col {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px; margin-bottom: 16px; align-items: start;
+}
+.two-col > .card { margin-bottom: 0; min-width: 0; }
+td.clip { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bars { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 7px; }
+.bars .row { display: grid; grid-template-columns: 120px 1fr 90px; gap: 10px; align-items: center; font-size: 12px; }
+.bars .track { height: 8px; background: var(--grid); border-radius: 2px; overflow: hidden; }
+.bars .track i { display: block; height: 100%; background: var(--series-current); }
+.bars .row b { text-align: right; font-weight: 560; font-variant-numeric: tabular-nums; }
+.cross { font-size: 11px; color: var(--ink-muted); padding: 8px 12px; border-top: 1px solid var(--border); }
+.spark { display: block; }
+/* Cifra y cambio en la misma línea: la tabla ya se desplaza de lado si no cabe. */
+table.traffic td { white-space: nowrap; }
+
+/* Conexión de un sitio */
+.sa-box {
+  margin-bottom: 14px; padding: 10px 12px; border: 1px dashed var(--border-strong);
+  border-radius: var(--radius); font-size: 12px; color: var(--ink-2);
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.sa-box .bad { color: var(--critical); }
+.google-form input[name="searchConsole"], .google-form input[name="ga4Property"] {
+  font: inherit; font-size: 12.5px; padding: 5px 8px;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  background: var(--plane); color: var(--ink);
+}
+.checks {
+  margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+  display: flex; flex-direction: column; gap: 7px; font-size: 12px;
+}
+.checks .line { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.checks .sub-line .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-muted); }
+.checks .chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+/* «Probar conexión» comparte formulario con «Guardar»: se ve secundario. */
+.site-form button.ghost[type="submit"] {
+  background: none; border: 1px solid var(--border-strong); color: var(--ink-2); font-weight: 500;
+}
+.site-form button.ghost[type="submit"]:hover { color: var(--ink); background: var(--surface); }
+
+@media (max-width: 640px) {
+  .bars .row { grid-template-columns: 90px 1fr 76px; }
+  .two-col { grid-template-columns: 1fr; }
+}
+
 /* ── Impresión ───────────────────────────────────────────────────────────────
    El panel por sitio se imprime tal cual, sin una vista aparte: dos plantillas
    del mismo contenido acaban diciendo cosas distintas.
@@ -484,6 +565,8 @@ button.ghost.danger:hover { background: var(--critical-wash); }
     --border-strong: #c2c8d0;
     --series-desktop: #2a78d6;
     --series-mobile: #eb6834;
+    --series-current: #16355e;
+    --series-prev: #a9a79e;
     --good-wash: #eaf5ee;
     --warning-wash: #fdf4e3;
     --critical-wash: #fbeeed;

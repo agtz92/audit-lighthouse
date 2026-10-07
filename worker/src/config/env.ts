@@ -90,6 +90,32 @@ const envSchema = z.object({
   REPORT_AUTHOR_ROLE: str('Consultor en soluciones de software e inteligencia artificial'),
   REPORT_AUTHOR_CREDENTIALS: str('ITE 2016 · MNA 2027'),
 
+  // ── Search Console y GA4 (servicio analytics) ──────────────────────────
+  // A las 05:00 y no a las 06:00: el informe integral se arma al terminar
+  // Lighthouse y tiene que encontrar el tráfico ya sincronizado.
+  ANALYTICS_CRON: str('0 5 * * *'),
+  ANALYTICS_CONTROL_PORT: int(8098, 1, 65_535),
+  // La llave JSON de la cuenta de servicio. Solo se monta en el contenedor de
+  // analytics: el worker y el dashboard nunca la ven.
+  GOOGLE_CREDENTIALS_FILE: str('/app/secrets/google-sa.json'),
+  // Días que se vuelven a pedir en cada sincronización. Search Console sigue
+  // ajustando los últimos días después de publicarlos.
+  ANALYTICS_REFRESH_DAYS: int(5, 1, 60),
+  // Lo que se carga la primera vez que un sitio se conecta. 16 meses es lo más
+  // que guarda Search Console, y alcanza para comparar contra el año anterior.
+  ANALYTICS_BACKFILL_DAYS: int(486, 30, 1000),
+  // Las series diarias son diminutas: se conservan más que las auditorías.
+  ANALYTICS_RETENTION_DAYS: int(500, 60, 3650),
+  ANALYTICS_CONCURRENCY: int(3, 1, 10),
+  // Periodo que cubren los informes en PDF. month = el último mes calendario
+  // completo contra el anterior; 28d = los últimos 28 días contra los 28 previos.
+  REPORT_PERIOD: str('month').pipe(z.enum(['month', '28d'])),
+  // Caída de clics, en %, que dispara la bandera del webhook de tráfico.
+  TRAFFIC_DROP_THRESHOLD: int(20, 1, 100),
+  // Por aquí el servicio analytics pregunta si el worker está auditando, para
+  // no imprimir PDFs mientras Lighthouse mide.
+  WORKER_URL: str('http://worker:8099'),
+
   SITES_FILE: str('/app/config/sites.yaml'),
   PDF_DIR: str('/data/pdfs'),
   // Perfil de compresión de Ghostscript: screen (72 dpi) | ebook (150) |

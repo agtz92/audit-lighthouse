@@ -5,3 +5,5 @@
 data/pdfs
 *.log
 .env
+# La llave se monta como volumen; nunca se hornea en una imagen.
+secrets

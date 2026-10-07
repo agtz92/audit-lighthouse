@@ -1,9 +1,11 @@
 name: site-monitor
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Todo el sistema vive aquí: base de datos, worker (con su propio scheduler) y
-# dashboard. No hay cron de macOS ni contenedor de cron aparte.
-#   docker compose up -d      levanta y programa la corrida diaria de las 06:00
+# Todo el sistema vive aquí: base de datos, worker (con su propio scheduler),
+# analytics (Search Console y GA4, con el suyo) y dashboard. No hay cron de
+# macOS ni contenedor de cron aparte.
+#   docker compose up -d      levanta y programa la sincronización de las 05:00
+#                             y la auditoría de las 06:00
 # ─────────────────────────────────────────────────────────────────────────────
 
 x-tz: &tz ${TZ:-America/Mexico_City}
@@ -70,6 +72,9 @@ services:
       REPORT_AUTHOR_NAME: ${REPORT_AUTHOR_NAME:-José Alfredo Gutiérrez Guerra}
       REPORT_AUTHOR_ROLE: ${REPORT_AUTHOR_ROLE:-Consultor en soluciones de software e inteligencia artificial}
       REPORT_AUTHOR_CREDENTIALS: ${REPORT_AUTHOR_CREDENTIALS:-ITE 2016 · MNA 2027}
+      # El integral toma su periodo de tráfico de aquí, igual que analitica.pdf.
+      REPORT_PERIOD: ${REPORT_PERIOD:-month}
+      TRAFFIC_DROP_THRESHOLD: ${TRAFFIC_DROP_THRESHOLD:-20}
       SITES_FILE: ${SITES_FILE:-/app/config/sites.yaml}
       CONTROL_PORT: ${CONTROL_PORT:-8099}
       PDF_DIR: ${PDF_DIR:-/data/pdfs}
@@ -92,6 +97,13 @@ services:
     # Permite que WEBHOOK_URL apunte a un servicio del host (host.docker.internal).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # DNS públicos en vez del router de la casa: el router guarda los "no existe"
+    # por horas y, tras cambiar el DNS de un sitio, la auditoría fallaba con
+    # ERR_NAME_NOT_RESOLVED aunque el dominio ya resolviera en todo internet.
+    # Los nombres de Compose (`db`) los sigue resolviendo el DNS interno de Docker.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     # Chromium se ahoga con el /dev/shm de 64 MB que trae Docker por default.
     shm_size: 512mb
     # Reaper de PID 1: sin esto los Chromium que mueren mal quedan como zombies.
@@ -102,6 +114,64 @@ services:
           # El dashboard pedía 640 MB y usa ~20 MiB en reposo; ese margen rinde
           # mucho más aquí, donde Chromium, pdf-lib y Ghostscript compiten.
           memory: 2432M
+
+  # ── Search Console y GA4 ──────────────────────────────────────────────────
+  # Proceso aparte de la auditoría: misma imagen que el worker (comparte el
+  # esquema, la configuración y el membrete de los informes), pero su propio
+  # contenedor, su propio cron y su propio candado. Sincroniza a las 05:00 para
+  # que el informe integral de las 06:00 encuentre el tráfico ya al día.
+  analytics:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    command: ["npm", "run", "analytics"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sitemon}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sitemon}
+      TZ: *tz
+      ANALYTICS_CRON: ${ANALYTICS_CRON:-0 5 * * *}
+      ANALYTICS_CONTROL_PORT: ${ANALYTICS_CONTROL_PORT:-8098}
+      RECOVERY_RUN_ON_BOOT: ${RECOVERY_RUN_ON_BOOT:-true}
+      GOOGLE_CREDENTIALS_FILE: /app/secrets/google-sa.json
+      ANALYTICS_REFRESH_DAYS: ${ANALYTICS_REFRESH_DAYS:-5}
+      ANALYTICS_BACKFILL_DAYS: ${ANALYTICS_BACKFILL_DAYS:-486}
+      ANALYTICS_RETENTION_DAYS: ${ANALYTICS_RETENTION_DAYS:-500}
+      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+      REPORT_PERIOD: ${REPORT_PERIOD:-month}
+      TRAFFIC_DROP_THRESHOLD: ${TRAFFIC_DROP_THRESHOLD:-20}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      # Antes de imprimir PDFs pregunta si el worker está auditando: los dos
+      # Chromium juntos no caben en la memoria de Docker.
+      WORKER_URL: http://worker:${CONTROL_PORT:-8099}
+      REPORT_AUTHOR_NAME: ${REPORT_AUTHOR_NAME:-José Alfredo Gutiérrez Guerra}
+      REPORT_AUTHOR_ROLE: ${REPORT_AUTHOR_ROLE:-Consultor en soluciones de software e inteligencia artificial}
+      REPORT_AUTHOR_CREDENTIALS: ${REPORT_AUTHOR_CREDENTIALS:-ITE 2016 · MNA 2027}
+      SITES_FILE: ${SITES_FILE:-/app/config/sites.yaml}
+      PDF_DIR: ${PDF_DIR:-/data/pdfs}
+      PDF_QUALITY: ${PDF_QUALITY:-ebook}
+      PDF_COMPRESS_TIMEOUT_MS: ${PDF_COMPRESS_TIMEOUT_MS:-60000}
+      PDF_RENDER_TIMEOUT_MS: ${PDF_RENDER_TIMEOUT_MS:-45000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./data/pdfs:/data/pdfs
+      - ./config:/app/config:ro
+      # La llave de la cuenta de servicio. Solo este contenedor la ve: ni el
+      # worker ni el dashboard —que está en la LAN sin autenticación— la tocan.
+      - ./secrets:/app/secrets:ro
+    # Igual que el worker: solo el dashboard alcanza este puerto.
+    expose:
+      - "${ANALYTICS_CONTROL_PORT:-8098}"
+    shm_size: 256mb
+    init: true
+    deploy:
+      resources:
+        limits:
+          # Sincronizar son llamadas HTTP; lo que pesa es el Chromium que
+          # imprime analitica.pdf al final, uno a la vez.
+          memory: 768M
 
   dashboard:
     build:
@@ -118,6 +188,8 @@ services:
       # Por aquí el dashboard le pide al worker auditorías a mano. El nombre
       # `worker` lo resuelve la red de Compose; desde fuera no existe.
       WORKER_URL: http://worker:${CONTROL_PORT:-8099}
+      # Y por aquí le pide al servicio analytics sincronizar o probar una conexión.
+      ANALYTICS_URL: http://analytics:${ANALYTICS_CONTROL_PORT:-8098}
       TZ: *tz
     volumes:
       # Solo lectura: el dashboard sirve los PDFs, nunca los escribe.

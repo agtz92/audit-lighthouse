@@ -1,7 +1,9 @@
 # site-monitor
 
-Audita todos los días una lista de sitios web, guarda dos PDFs por sitio y
-registra métricas históricas en Postgres, con un dashboard para verlas. Todo
+Audita todos los días una lista de sitios web, guarda sus informes en PDF y
+registra métricas históricas en Postgres, con un dashboard para verlas. Si un
+sitio tiene Search Console o Google Analytics 4 conectados, además sincroniza su
+tráfico en un proceso aparte y genera un informe de tráfico y uno integral. Todo
 corre en Docker Compose en una Mac usada como servidor local.
 
 Cada corrida, por sitio:
@@ -12,10 +14,10 @@ Cada corrida, por sitio:
 2. **Mide disponibilidad y velocidad** de cada página: status HTTP, cadena de
    redirecciones, TTFB, tiempo de carga, peso transferido y número de requests.
 3. **Revisa el certificado TLS** del dominio.
-4. **Genera dos PDFs**: `home.pdf` (solo la portada) y `full.pdf` (todas las
-   páginas concatenadas con índice), comprimidos con Ghostscript.
-5. **Mide rendimiento con Lighthouse** (escritorio y móvil) sobre la URL
+4. **Mide rendimiento con Lighthouse** (escritorio y móvil) sobre la URL
    principal, en una segunda fase con la máquina en silencio.
+5. **Genera los informes**: `desktop.pdf` y `mobile.pdf`, y `integral.pdf` si el
+   sitio tiene Search Console o GA4 conectados. Se comprimen con Ghostscript.
 6. **Purga** lo que tenga más de 90 días y manda un webhook si está configurado.
 
 ---
@@ -35,8 +37,9 @@ Eso deja los tres servicios corriendo y la corrida diaria programada a las
 | Servicio | Qué hace | Memoria |
 |---|---|---|
 | `db` | Postgres 17 con volumen persistente | 384 MB |
-| `worker` | Scheduler, auditorías y generación de PDFs | 2048 MB |
-| `dashboard` | Next.js de solo lectura, publicado en la LAN | 640 MB |
+| `worker` | Scheduler, auditorías y generación de PDFs | 2432 MB |
+| `analytics` | Sincroniza Search Console y GA4 a las 05:00 e imprime `analitica.pdf` | 768 MB |
+| `dashboard` | Next.js, publicado en la LAN | 320 MB |
 
 El puerto de Postgres **no se publica**: el worker y el dashboard se hablan por
 la red interna de Compose. Para conectarte con `psql` desde la Mac, descomenta el
@@ -105,6 +108,127 @@ Valida un cambio sin correr una auditoría completa:
 ```bash
 docker compose exec worker npm run check -- --site=mi-sitio --dry-run
 ```
+
+---
+
+## Search Console y GA4
+
+Cada sitio puede conectarse a su propiedad de **Google Search Console** (clics,
+impresiones, CTR, posición, consultas y páginas) y a la de **Google Analytics 4**
+(sesiones, usuarios, interacción, canales, dispositivos, páginas de entrada y
+eventos clave). Las dos son opcionales e independientes: un sitio sin conexión
+se sigue auditando con Lighthouse como siempre.
+
+Es un **proceso aparte** de la auditoría: el servicio `analytics`, con su propio
+cron (`ANALYTICS_CRON`, por default **05:00**), su propio candado y su propio
+historial de corridas. Corre una hora antes que Lighthouse a propósito: el
+informe integral se arma al terminar la auditoría y tiene que encontrar el
+tráfico ya sincronizado.
+
+### Configurar la cuenta de servicio (una sola vez)
+
+1. En [Google Cloud](https://console.cloud.google.com/) crea un proyecto (o usa
+   uno) y en **APIs y servicios › Biblioteca** habilita:
+   - Google Search Console API
+   - Google Analytics Data API
+   - Google Analytics Admin API (para listar propiedades y eventos clave)
+2. En **IAM › Cuentas de servicio** crea una cuenta, sin roles. En su pestaña
+   **Claves**, agrega una clave JSON y descárgala.
+3. Guárdala como `secrets/google-sa.json` y reinicia el servicio:
+
+   ```bash
+   docker compose up -d analytics
+   ```
+
+La llave solo se monta en el contenedor `analytics`: ni el worker ni el
+dashboard la ven. `secrets/` está en `.gitignore` y en `.dockerignore`.
+
+Cuenta de servicio y no OAuth: el dashboard vive en la LAN sin HTTPS, y Google
+no acepta una IP privada como destino de regreso de OAuth. Con una cuenta de
+servicio no hay consentimientos que caduquen.
+
+### Conectar un sitio
+
+En **Sitios › nombre del sitio › Search Console y Google Analytics**:
+
+1. Copia el correo de la cuenta de servicio que muestra la pantalla y agrégalo
+   como usuario **de lectura**:
+   - Search Console: Configuración › Usuarios y permisos › Agregar usuario, permiso *Restringido*.
+   - GA4: Administrar › Acceso a la propiedad › Agregar usuario, rol *Lector*.
+2. Escribe (o elige de la lista) la propiedad de Search Console —de dominio,
+   `sc-domain:ejemplo.com`, o de prefijo de URL con su diagonal final— y el id
+   numérico de la propiedad de GA4 (Administrar › Detalles de la propiedad; **no**
+   es el `G-XXXX`).
+3. **Probar conexión** prueba lo escrito sin guardarlo: dice si hay acceso, hasta
+   qué día hay datos y qué **eventos clave** tiene definidos la propiedad.
+4. **Guardar** lo escribe en `sites.yaml`:
+
+   ```yaml
+   google:
+     searchConsole: sc-domain:matmarkt.mx
+     ga4Property: "345678901"
+   ```
+
+5. **Sincronizar ahora** trae su historia sin esperar a las 05:00.
+
+### Qué sincroniza
+
+- **Series diarias** de cada fuente. La primera vez carga 16 meses hacia atrás
+  (`ANALYTICS_BACKFILL_DAYS`, lo más que guarda Search Console); después pide
+  desde el último día guardado, pero nunca menos de los últimos
+  `ANALYTICS_REFRESH_DAYS` (5), porque Google sigue ajustando esos días.
+- **Desgloses** de cuatro periodos —últimos 28 días, los 28 anteriores, el último
+  mes calendario y el anterior—: consultas, páginas, canales, dispositivos,
+  páginas de entrada, eventos clave y totales.
+
+Search Console publica con **2 a 3 días de retraso**. Por eso los periodos de 28
+días se anclan en el último día publicado y no en ayer: con ayer, los últimos
+días saldrían en cero y toda comparación caería.
+
+Si una fuente falla —permisos, una API sin habilitar— la otra se guarda igual,
+el sitio queda `partial` y el motivo, ya traducido a qué hacer, aparece en el
+dashboard.
+
+### Monitorear
+
+- **Tráfico** (pestaña nueva): todos los sitios conectados con clics, tendencia,
+  impresiones, CTR, posición, sesiones, interacción, eventos clave y el
+  rendimiento móvil de Lighthouse, contra el periodo anterior. 28 días, 90 días
+  o 12 meses. Una fila en rojo es una caída de clics de `TRAFFIC_DROP_THRESHOLD`
+  (20%) o más.
+- **Sitio › Búsqueda y tráfico**: una gráfica por métrica con el periodo actual
+  contra el anterior día a día, consultas principales, y las **páginas con
+  tráfico cruzadas con la auditoría de hoy**: una página que recibe visitas y
+  responde 404 o tarda más de 4 s sale marcada.
+- **Corridas** muestra las sincronizaciones junto a las auditorías, filtrables.
+
+Correrla a mano:
+
+```bash
+docker compose exec analytics npm run analytics:sync                    # todos
+docker compose exec analytics npm run analytics:sync -- --site=matmarkt # uno
+docker compose exec analytics npm run analytics:sync -- --dry-run       # sin escribir
+```
+
+### Informes
+
+- **`analitica.pdf`**: búsqueda y tráfico. Lo imprime el servicio `analytics` al
+  terminar de sincronizar.
+- **`integral.pdf`**: rendimiento y tráfico juntos. Abre con un resumen ejecutivo
+  que cruza las dos miradas, sigue con el diagnóstico de móvil y escritorio, las
+  hojas de tráfico y la disponibilidad por página. Lo imprime el worker al
+  terminar Lighthouse, con el tráfico que ya está en la base.
+
+Los dos llevan el mismo membrete que los informes de Lighthouse (sale de
+`worker/src/report/brand.ts`, compartido por los cuatro). Cubren el periodo de
+`REPORT_PERIOD`: `month` (default) es el último mes calendario completo contra el
+anterior, que es lo que se entrega a un cliente; `28d` son los últimos 28 días.
+Durante los primeros días de cada mes Search Console todavía no publica el final
+del mes anterior, y el informe lo dice.
+
+Si el worker está auditando cuando el servicio `analytics` termina de
+sincronizar, los PDFs de tráfico esperan a que acabe: los dos Chromium juntos no
+caben en la memoria de Docker. Los datos se guardan sin esperar.
 
 ---
 
@@ -205,19 +329,19 @@ Aun así, esperar variación de 1-3 puntos entre corridas idénticas es normal. 
 eso la bandera `performanceDropped` del webhook exige una caída **mayor** a 10
 puntos: con un umbral más apretado avisaría por ruido.
 
-### Los dos PDFs
+### Los PDFs
 
-- **`home.pdf`** — solo la URL principal.
-- **`full.pdf`** — todas las páginas auditadas, concatenadas, con un índice al
-  inicio que lista cada URL y su número de página. Cada página lleva su URL de
-  origen en el pie.
+Viven en `data/pdfs/<site-id>/`, uno vigente de cada tipo:
 
-Ambos se generan en A4 con `printBackground` y CSS de pantalla (no de impresión),
-para que el PDF se parezca al sitio y no a su versión imprimible.
+- **`desktop.pdf`** y **`mobile.pdf`**: el informe de rendimiento de cada
+  estrategia, con conclusión, calificaciones, Core Web Vitals, prioridades,
+  oportunidades, hallazgos y disponibilidad por página.
+- **`analitica.pdf`**: búsqueda y tráfico, solo para sitios con Search Console o
+  GA4 conectados. Ver [Search Console y GA4](#search-console-y-ga4).
+- **`integral.pdf`**: los dos anteriores juntos, con un resumen ejecutivo propio.
 
-Si el sitio tiene más URLs que `maxPages`, el índice lo dice explícitamente:
-*"Documento truncado: el sitio declara 1257 URLs y el límite configurado es 50"*.
-En el dashboard aparece la etiqueta `trunc` en la columna de páginas.
+Se generan en A4 desde plantillas propias, con las fuentes embebidas, y la
+numeración de hojas la pone Chromium en el pie.
 
 **La escritura es atómica.** Se escribe a `.tmp` y se renombra solo al terminar
 bien, así que si una corrida falla **los PDFs del día anterior quedan intactos**.
@@ -262,6 +386,15 @@ Probarlo con la última corrida real:
 ```bash
 docker compose exec worker npm run webhook:test
 ```
+
+Al terminar cada sincronización de tráfico llega otro `POST` al mismo destino,
+con `event: "analytics.finished"` (también en el encabezado
+`x-site-monitor-event`). Por sitio trae el estado de cada fuente, clics y
+sesiones de los últimos 28 días contra los 28 anteriores y dos banderas:
+
+- `trafficDropped`: los clics cayeron `TRAFFIC_DROP_THRESHOLD`% o más
+- `accessLost`: una fuente falló por algo que no se arregla solo, como un
+  permiso perdido, una propiedad que no existe o una API deshabilitada
 
 ---
 
@@ -324,7 +457,7 @@ al arrancar el worker (toma un advisory lock, así que dos procesos no se pisan)
 
 No hay autenticación, usuarios ni HTTPS: el dashboard asume una red local de
 confianza. No hay notificaciones por email ni Slack, solo el webhook genérico.
-No hay histórico de PDFs más allá de los dos vigentes por sitio.
+No hay histórico de PDFs más allá de los vigentes por sitio.
 
 El esquema y el pipeline quedaron abiertos para agregar SEO on-page y detección
 de cambios de contenido —hay columnas `extra jsonb` en `site_runs` y

@@ -99,6 +99,29 @@ export const pagesInputSchema = z.object({
 
 export type PagesInput = z.infer<typeof pagesInputSchema>;
 
+/** Mismas reglas que el worker (config/sites.ts): si pasa aquí, la corrida no falla. */
+const GSC_PROPERTY = /^(sc-domain:[a-z0-9.-]+|https?:\/\/[^\s]+\/)$/i;
+const GA4_PROPERTY = /^\d{6,12}$/;
+
+const vacioAUndefined = (v: unknown): unknown => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
+export const googleInputSchema = z.object({
+  id: z.string().trim().min(1),
+  searchConsole: z.preprocess(
+    vacioAUndefined,
+    z.string().trim().regex(GSC_PROPERTY, 'Escríbela como sc-domain:dominio.com o como URL completa terminada en /').optional(),
+  ),
+  ga4Property: z.preprocess(
+    (v) => {
+      const x = vacioAUndefined(v);
+      return typeof x === 'string' ? x.trim().replace(/^properties\//, '') : x;
+    },
+    z.string().regex(GA4_PROPERTY, 'Es el número de la propiedad (Administrar › Detalles de la propiedad), no el G-XXXX').optional(),
+  ),
+});
+
+export type GoogleInput = z.infer<typeof googleInputSchema>;
+
 export interface SiteEntry {
   id: string;
   name: string;
@@ -109,6 +132,8 @@ export interface SiteEntry {
   maxPages: number | null;
   /** Vacío = las páginas las elige el descubrimiento automático. */
   pages: string[];
+  /** null en cada fuente que no está conectada. */
+  google: { searchConsole: string | null; ga4Property: string | null };
 }
 
 export interface SitesFile {
@@ -151,6 +176,9 @@ function entryOf(node: unknown): SiteEntry | null {
   if (typeof id !== 'string') return null;
   const maxPages = map.get('maxPages');
   const pages = map.get('pages');
+  const gsc = map.getIn(['google', 'searchConsole']);
+  // Sin comillas en el YAML el id de GA4 llega como número.
+  const ga4 = map.getIn(['google', 'ga4Property']);
   return {
     id,
     name: String(map.get('name') ?? id),
@@ -161,6 +189,10 @@ function entryOf(node: unknown): SiteEntry | null {
     // toJSON() devuelve strings planos; los nodos crudos de `yaml` no se pueden
     // pasar a un componente de React.
     pages: isSeq(pages) ? (pages.toJSON() as unknown[]).filter((u): u is string => typeof u === 'string') : [],
+    google: {
+      searchConsole: typeof gsc === 'string' && gsc.trim() !== '' ? gsc.trim() : null,
+      ga4Property: typeof ga4 === 'string' || typeof ga4 === 'number' ? String(ga4).trim() || null : null,
+    },
   };
 }
 
@@ -223,7 +255,7 @@ export async function addSite(input: SiteInput): Promise<void> {
  * sitemap desde el dashboard lo dejaría después de `pages` y el archivo se iría
  * desordenando con cada edición.
  */
-const ORDEN_LLAVES = ['id', 'name', 'url', 'sitemap', 'enabled', 'maxPages', 'timeoutMs', 'viewport', 'waitUntil', 'exclude', 'pages'];
+const ORDEN_LLAVES = ['id', 'name', 'url', 'sitemap', 'enabled', 'maxPages', 'timeoutMs', 'viewport', 'waitUntil', 'exclude', 'google', 'pages'];
 
 /** Asigna una llave respetando ORDEN_LLAVES cuando hay que crearla. */
 function setOrdenado(doc: Document, map: YAMLMap, key: string, value: unknown): void {
@@ -294,6 +326,27 @@ export async function setSitePages(input: PagesInput): Promise<void> {
 
   if (unicas.length === 0) map.delete('pages');
   else setOrdenado(doc, map, 'pages', unicas);
+
+  await saveDocument(doc);
+}
+
+/**
+ * Guarda la conexión con Search Console y GA4. Una fuente vacía se borra del
+ * YAML; si las dos quedan vacías se borra el bloque `google` completo, que es
+ * como se lee «este sitio no está conectado».
+ */
+export async function setSiteGoogle(input: GoogleInput): Promise<void> {
+  const doc = await loadDocument();
+  const seq = sitesSeq(doc);
+  const map = nodoDe(seq, input.id);
+
+  const bloque: Record<string, string> = {};
+  if (input.searchConsole !== undefined) bloque.searchConsole = input.searchConsole;
+  // Como texto: el YAML lo escribe entre comillas y nadie lo confunde con una cantidad.
+  if (input.ga4Property !== undefined) bloque.ga4Property = input.ga4Property;
+
+  if (Object.keys(bloque).length === 0) map.delete('google');
+  else setOrdenado(doc, map, 'google', bloque);
 
   await saveDocument(doc);
 }

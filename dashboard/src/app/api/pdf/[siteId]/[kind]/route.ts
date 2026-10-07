@@ -14,8 +14,18 @@ import { Readable } from 'node:stream';
 import { query } from '@/lib/db';
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
-/** Los dos archivos por sitio son los reportes de Lighthouse. */
-const KINDS = new Set(['desktop', 'mobile']);
+/**
+ * Los documentos de cada sitio: los dos de Lighthouse, el de tráfico y el
+ * integral. Lista cerrada: el valor termina en una ruta de archivo.
+ */
+const KINDS = new Set(['desktop', 'mobile', 'analitica', 'integral']);
+
+const NOMBRE: Record<string, string> = {
+  desktop: 'el reporte de Lighthouse de escritorio',
+  mobile: 'el reporte de Lighthouse móvil',
+  analitica: 'el informe de búsqueda y tráfico',
+  integral: 'el informe integral',
+};
 
 export async function GET(
   _request: Request,
@@ -46,7 +56,9 @@ export async function GET(
     mtime = info.mtime;
   } catch {
     return new Response(
-      `Todavía no hay el reporte de Lighthouse ${kind} para ${site.name}. Se genera en la siguiente corrida.`,
+      kind === 'analitica' || kind === 'integral'
+        ? `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera cuando el sitio tiene Search Console o GA4 conectados: el de tráfico después de sincronizar, y el integral al terminar la siguiente auditoría.`
+        : `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera en la siguiente corrida.`,
       { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } },
     );
   }

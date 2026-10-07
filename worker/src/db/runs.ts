@@ -186,13 +186,17 @@ export interface PdfMeta {
  */
 export async function recordPdfMeta(
   siteRunId: number,
-  strategy: 'desktop' | 'mobile',
+  kind: 'desktop' | 'mobile' | 'integral',
   meta: PdfMeta | null,
 ): Promise<void> {
   if (meta === null) return;
-  const cols = strategy === 'desktop'
-    ? ['desktop_pdf_bytes', 'desktop_pdf_pages', 'desktop_pdf_generated_at']
-    : ['mobile_pdf_bytes', 'mobile_pdf_pages', 'mobile_pdf_generated_at'];
+  // Los nombres de columna salen de esta lista cerrada, nunca del argumento
+  // tal cual: van interpolados en el SQL.
+  const cols = ({
+    desktop: ['desktop_pdf_bytes', 'desktop_pdf_pages', 'desktop_pdf_generated_at'],
+    mobile: ['mobile_pdf_bytes', 'mobile_pdf_pages', 'mobile_pdf_generated_at'],
+    integral: ['integral_pdf_bytes', 'integral_pdf_pages', 'integral_pdf_generated_at'],
+  } as const)[kind];
 
   await db().query(
     `UPDATE site_runs SET ${cols[0]} = $2, ${cols[1]} = $3, ${cols[2]} = $4 WHERE id = $1`,

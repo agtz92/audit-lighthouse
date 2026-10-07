@@ -72,7 +72,7 @@ export function parseRunRequest(raw: string): { ok: true; siteId: string | undef
 }
 
 /** Lee el cuerpo con un tope: nadie tiene por qué mandar más que un id aquí. */
-async function readBody(req: NodeJS.ReadableStream, maxBytes = 4096): Promise<string> {
+export async function readBody(req: NodeJS.ReadableStream, maxBytes = 4096): Promise<string> {
   const partes: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {

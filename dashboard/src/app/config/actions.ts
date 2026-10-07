@@ -20,9 +20,12 @@ import {
   siteInputSchema,
   siteEditSchema,
   pagesInputSchema,
+  googleInputSchema,
+  setSiteGoogle,
   SitesFileError,
 } from '@/lib/sites-file';
 import { requestRun } from '@/lib/worker-control';
+import { requestSync, testConnection, type ConnectionCheck } from '@/lib/analytics-control';
 
 export interface ActionResult {
   ok: boolean;
@@ -182,5 +185,75 @@ export async function auditarSitio(_prev: ActionResult | null, form: FormData): 
   return {
     ok: true,
     message: `Auditoría #${r.runId ?? '?'} en marcha. Toma unos minutos; puedes seguirla en Panorama.`,
+  };
+}
+
+export interface GoogleActionResult extends ActionResult {
+  /** Resultado de «Probar conexión», cuando eso fue lo que se pidió. */
+  check?: ConnectionCheck;
+}
+
+/**
+ * Guarda o prueba la conexión con Search Console y GA4.
+ *
+ * Es una sola acción con dos botones —`intent` dice cuál se presionó— porque
+ * los dos trabajan sobre los mismos campos: lo natural es escribir, probar y,
+ * si salió bien, guardar sin volver a teclear nada.
+ */
+export async function conexionGoogle(_prev: GoogleActionResult | null, form: FormData): Promise<GoogleActionResult> {
+  const parsed = googleInputSchema.safeParse({
+    id: form.get('id'),
+    searchConsole: form.get('searchConsole'),
+    ga4Property: form.get('ga4Property'),
+  });
+  if (!parsed.success) return porCampo(parsed.error);
+
+  if (form.get('intent') === 'probar') {
+    if (parsed.data.searchConsole === undefined && parsed.data.ga4Property === undefined) {
+      return { ok: false, message: 'Escribe al menos una de las dos propiedades para probarla.' };
+    }
+    const check = await testConnection({
+      searchConsole: parsed.data.searchConsole ?? null,
+      ga4Property: parsed.data.ga4Property ?? null,
+    });
+    if (!check.ok) return { ok: false, message: check.error ?? 'No se pudo probar la conexión.' };
+    const fuentes = [check.searchConsole, check.ga4].filter((c) => c !== null);
+    const bien = fuentes.every((c) => c.ok);
+    return {
+      ok: bien,
+      message: bien ? 'Conexión confirmada. Ya puedes guardar.' : 'Hay algo que corregir antes de guardar.',
+      check,
+    };
+  }
+
+  try {
+    await setSiteGoogle(parsed.data);
+  } catch (err) {
+    return fail(err);
+  }
+
+  revalidatePath(`/config/${parsed.data.id}`);
+  revalidatePath(`/sites/${parsed.data.id}`);
+  revalidatePath('/trafico');
+  const conectado = parsed.data.searchConsole !== undefined || parsed.data.ga4Property !== undefined;
+  return {
+    ok: true,
+    message: conectado
+      ? 'Guardado. La próxima sincronización trae su historial completo; puedes pedirla ahora con «Sincronizar ahora».'
+      : 'Conexión quitada. El historial de tráfico ya guardado se conserva.',
+  };
+}
+
+/** Pide al servicio analytics sincronizar un sitio, o todos, ahora mismo. */
+export async function sincronizarTrafico(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const id = String(form.get('id') ?? '');
+  const r = await requestSync(id === '' ? undefined : id);
+  if (!r.ok) return { ok: false, message: r.message };
+  revalidatePath('/trafico');
+  revalidatePath('/runs');
+  if (id !== '') revalidatePath(`/sites/${id}/trafico`);
+  return {
+    ok: true,
+    message: `Sincronización #${r.runId ?? '?'} en marcha. Toma uno o dos minutos; la primera de un sitio, un poco más.`,
   };
 }

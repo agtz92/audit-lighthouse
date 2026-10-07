@@ -1,14 +1,11 @@
 /**
- * Impresión del reporte de Lighthouse a PDF.
+ * Impresión de un informe a PDF.
  *
- * El reporte que genera Lighthouse es un HTML autocontenido que se arma a sí
- * mismo con JavaScript: trae el JSON embebido y construye el DOM al cargar. Por
- * eso no basta con imprimirlo, hay que dejarlo ejecutarse primero.
- *
- * Y hay que abrir sus secciones colapsadas. El reporte esconde el detalle de
- * cada auditoría dentro de <details> cerrados, así que un PDF hecho tal cual
- * saldría con los cuatro scores y casi nada más: justo el detalle por el que uno
- * guarda el reporte se perdería.
+ * Nació para imprimir el reporte nativo de Lighthouse, que se arma con
+ * JavaScript y esconde su detalle en <details> cerrados; de ahí que todavía
+ * abra lo colapsable antes de imprimir. Hoy imprime las plantillas propias
+ * (escritorio, móvil, tráfico e integral), que son HTML estático, y abrir
+ * <details> sobre ellas no cambia nada.
  */
 
 import type { Browser } from 'playwright';
@@ -76,15 +73,12 @@ export async function renderReportPdf(
         // El HTML no pide recursos externos: todo viene embebido, así que
         // 'load' basta y no hay que esperar a la red.
         await page.setContent(html, { waitUntil: 'load' });
-        // Un momento para que el script del reporte termine de construir el DOM.
-        await page.waitForFunction(
-          () => document.querySelectorAll('.lh-audit, .lh-metric').length > 0,
-          undefined,
-          { timeout: 15_000 },
-        ).catch(() => {
-          // Si el selector cambia en una versión futura de Lighthouse, se
-          // imprime de todos modos en lugar de quedarse sin PDF.
-        });
+        // Los informes son HTML estático con las fuentes embebidas: lo único
+        // que hay que esperar es que las fuentes estén listas. Aquí antes se
+        // esperaba a que aparecieran los nodos del reporte nativo de
+        // Lighthouse, que nuestra plantilla no tiene, así que cada documento
+        // se quedaba 15 s parado hasta que vencía la espera.
+        await page.evaluate(() => document.fonts.ready.then(() => true)).catch(() => true);
         await page.evaluate(PREPARE_FOR_PRINT);
         await page.emulateMedia({ media: 'screen' });
         return await page.pdf({

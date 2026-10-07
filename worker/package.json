@@ -9,6 +9,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "check": "tsx src/cli.ts",
+    "analytics": "tsx src/analytics/service.ts",
+    "analytics:sync": "tsx src/analytics/cli.ts",
     "migrate": "node-pg-migrate -m ../db/migrations",
     "migrate:up": "node-pg-migrate -m ../db/migrations up",
     "migrate:down": "node-pg-migrate -m ../db/migrations down",

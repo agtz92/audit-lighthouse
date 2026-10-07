@@ -5,6 +5,8 @@ import {
   fetchSiteOverview, type TrendPoint,
 } from '@/lib/queries';
 import { SiteNow } from '@/components/site-now';
+import { SiteTabs } from '@/components/site-tabs';
+import { pdfExists } from '@/lib/pdf-files';
 import { PrintButton } from '@/components/print-button';
 import type { TrendDatum } from '@/components/trend-chart';
 import { TrendChart } from '@/components/trend-chart';
@@ -58,12 +60,13 @@ export default async function SitePage({
   const site = await fetchSite(siteId);
   if (site === null) notFound();
 
-  const [lighthouse, availability, pages, history, ahora] = await Promise.all([
+  const [lighthouse, availability, pages, history, ahora, hayIntegral] = await Promise.all([
     fetchLighthouseTrend(siteId, range),
     fetchAvailabilityTrend(siteId, range),
     fetchLastRunPages(siteId),
     fetchSiteRunHistory(siteId, range),
     fetchSiteOverview(siteId),
+    pdfExists(siteId, 'integral'),
   ]);
 
   const disponibilidad: TrendDatum[] = availability.map((p) => ({
@@ -129,10 +132,19 @@ export default async function SitePage({
             <a href={`/api/pdf/${siteId}/mobile`} target="_blank" rel="noreferrer noopener">
               reporte móvil
             </a>
+            {/* Solo existe para sitios con Search Console o GA4 conectados. */}
+            {hayIntegral && (
+              <a href={`/api/pdf/${siteId}/integral`} target="_blank" rel="noreferrer noopener">
+                informe integral
+              </a>
+            )}
           </span>
           <RangePicker basePath={`/sites/${siteId}`} current={range} />
           <PrintButton />
         </header>
+        <div style={{ padding: '9px 12px 0' }}>
+          <SiteTabs siteId={siteId} current="rendimiento" />
+        </div>
         {ultima !== undefined && (
           <div style={{ padding: '9px 12px', display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '12px' }}>
             <StatusBadge status={ultima.status} />

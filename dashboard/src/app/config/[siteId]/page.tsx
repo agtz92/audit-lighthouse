@@ -5,6 +5,9 @@ import { fetchSitePageOptions } from '@/lib/queries';
 import { EditSiteForm } from '@/components/edit-site-form';
 import { PagePicker } from '@/components/page-picker';
 import { AuditNow } from '@/components/audit-now';
+import { GoogleForm } from '@/components/google-form';
+import { SyncNow } from '@/components/sync-now';
+import { analyticsHealth, availableProperties, type AvailableProperties } from '@/lib/analytics-control';
 import { fmtDateTime, DISCOVERY_LABELS } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +47,12 @@ export default async function SiteConfigPage({ params }: { params: Promise<{ sit
   const site = archivo.entries.find((e) => e.id === siteId);
   if (site === undefined) notFound();
 
-  const opciones = await fetchSitePageOptions(siteId);
+  const [opciones, analytics] = await Promise.all([fetchSitePageOptions(siteId), analyticsHealth()]);
+  // Listar propiedades cuesta dos llamadas a Google: solo si hay con qué hacerlas.
+  const propiedades: AvailableProperties = analytics.cuentaServicio !== null
+    ? await availableProperties()
+    : { searchConsole: [], searchConsoleError: null, ga4: [], ga4Error: null };
+  const conectado = site.google.searchConsole !== null || site.google.ga4Property !== null;
 
   const topeEfectivo = site.maxPages ?? archivo.defaults.maxPages ?? 5;
   const home = homeDe(site.url);
@@ -69,6 +77,41 @@ export default async function SiteConfigPage({ params }: { params: Promise<{ sit
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
             <AuditNow id={site.id} name={site.name} />
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <header>
+          <h2>Search Console y Google Analytics</h2>
+          <span className="sub">
+            opcional · un sitio sin conexión se sigue auditando igual
+            {conectado && (
+              <>
+                {' · '}
+                <Link href={`/sites/${site.id}/trafico`}>ver su tráfico</Link>
+              </>
+            )}
+          </span>
+          {conectado && (
+            <>
+              <div style={{ flex: 1 }} />
+              <SyncNow id={site.id} />
+            </>
+          )}
+        </header>
+        <div style={{ padding: '14px 12px' }}>
+          <GoogleForm
+            siteId={site.id}
+            siteUrl={site.url}
+            current={site.google}
+            account={analytics.cuentaServicio}
+            accountError={
+              !analytics.alcanzable
+                ? 'El servicio analytics no responde. Revisa que su contenedor esté arriba (docker compose ps).'
+                : analytics.credencialesError
+            }
+            properties={propiedades}
+          />
         </div>
       </div>
 

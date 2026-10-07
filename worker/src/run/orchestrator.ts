@@ -139,6 +139,7 @@ export async function runAudit(opts: RunAuditOptions): Promise<RunSummary> {
       role: cfg.REPORT_AUTHOR_ROLE,
       credentials: cfg.REPORT_AUTHOR_CREDENTIALS,
     },
+    traffic: { mode: cfg.REPORT_PERIOD, tz: cfg.TZ, dropThreshold: cfg.TRAFFIC_DROP_THRESHOLD },
   });
 
   const sitesFailed = results.filter((r) => r.status === 'failed').length;

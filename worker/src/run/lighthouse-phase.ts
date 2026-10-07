@@ -33,9 +33,14 @@ import { fetchPreviousForReport } from '../db/snapshots.js';
 import { buildReportData } from '../report/build.js';
 import { renderReportHtml, footerLeftText } from '../report/template.js';
 import { pathOfUrl } from '../lib/url.js';
-import { sitePdfPaths, writeReportPdf, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
+import { sitePdfPaths, writeReportPdf, cleanStaleTmpDirs, type SitePdfPaths } from '../pdf/site-pdfs.js';
 import type { PdfQuality } from '../pdf/compress.js';
 import type { SiteRunResult } from './site-runner.js';
+import type { ReportData } from '../report/model.js';
+import type { Browser } from 'playwright';
+import { loadAnalyticsReport } from '../analytics/report-data.js';
+import { isoToday } from '../analytics/periods.js';
+import { renderIntegralHtml, integralFooterText } from '../report/integral-template.js';
 
 /**
  * Intentos por estrategia. Una medición incompleta se reintenta con un navegador
@@ -59,6 +64,62 @@ export interface LighthousePhaseDeps {
   runId: number | null;
   /** Datos de marca que encabezan cada informe. */
   consultant: { name: string; role: string; credentials: string };
+  /** Para la parte de tráfico del informe integral. */
+  traffic: { mode: 'month' | '28d'; tz: string; dropThreshold: number };
+}
+
+/**
+ * Informe integral: Lighthouse de hoy más el tráfico que ya dejó sincronizado
+ * el servicio analytics. Solo para sitios con Search Console o GA4
+ * conectados y con datos; los demás siguen con sus dos informes de siempre.
+ *
+ * Lee el tráfico de la base, no de Google: el worker no tiene la llave de la
+ * cuenta de servicio. Si falla, no toca nada más de la corrida.
+ */
+async function writeIntegral(
+  site: ResolvedSite,
+  result: SiteRunResult,
+  porEstrategia: Partial<Record<'desktop' | 'mobile', ReportData>>,
+  paths: SitePdfPaths,
+  printer: Browser,
+  deps: LighthousePhaseDeps,
+  log: Logger,
+): Promise<void> {
+  if (site.google.searchConsole === null && site.google.ga4Property === null) return;
+  if (porEstrategia.desktop === undefined && porEstrategia.mobile === undefined) return;
+
+  try {
+    const traffic = await loadAnalyticsReport(site, {
+      consultant: deps.consultant,
+      mode: deps.traffic.mode,
+      today: isoToday(deps.traffic.tz),
+      generatedAt: new Date(),
+      runId: deps.runId ?? 0,
+      dropThreshold: deps.traffic.dropThreshold,
+    });
+    if (traffic === null) {
+      log.info('informe integral omitido: el sitio todavía no tiene tráfico sincronizado');
+      return;
+    }
+    const input = { desktop: porEstrategia.desktop ?? null, mobile: porEstrategia.mobile ?? null, traffic };
+    const meta = await writeReportPdf({
+      paths,
+      strategy: 'integral',
+      html: await renderIntegralHtml(input),
+      footerLeft: integralFooterText(input),
+      browser: printer,
+      quality: deps.pdfQuality,
+      compressTimeoutMs: deps.pdfCompressTimeoutMs,
+      renderTimeoutMs: deps.pdfRenderTimeoutMs,
+      dryRun: deps.dryRun,
+      log,
+    });
+    if (!deps.dryRun && result.siteRunId !== null) {
+      await recordPdfMeta(result.siteRunId, 'integral', meta);
+    }
+  } catch (err) {
+    log.error('no se pudo armar el informe integral; los otros dos quedaron bien', err);
+  }
 }
 
 /**
@@ -144,6 +205,8 @@ export async function runLighthousePhase(
         const paths = sitePdfPaths(deps.pdfDir, result.siteId, deps.runId ?? 'dry-run');
         /** Lo que hay que imprimir, una vez cerrado el navegador de Lighthouse. */
         const porImprimir: Array<{ strategy: 'desktop' | 'mobile'; html: string; footerLeft: string }> = [];
+        /** Los datos ya armados de cada estrategia, para el integral. No cargan el LHR. */
+        const porEstrategia: Partial<Record<'desktop' | 'mobile', ReportData>> = {};
 
         try {
           for (const strategy of ['desktop', 'mobile'] as const) {
@@ -217,6 +280,7 @@ export async function runLighthousePhase(
                 previous,
               });
               const html = await renderReportHtml(datos);
+              porEstrategia[strategy] = datos;
 
               // Se guarda para imprimirlo DESPUÉS de cerrar este navegador.
               porImprimir.push({ strategy, html, footerLeft: footerLeftText(datos) });
@@ -274,6 +338,7 @@ export async function runLighthousePhase(
               await recordPdfMeta(result.siteRunId, strategy, meta);
             }
           }
+          await writeIntegral(site, result, porEstrategia, paths, printer, deps, log);
         }
 
       }),

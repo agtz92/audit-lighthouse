@@ -79,8 +79,12 @@ export function shouldRetry(status: number): boolean {
   return status >= 500 || status === 408 || status === 429;
 }
 
-export async function deliverWebhook(
-  payload: WebhookPayload,
+/**
+ * Entrega cualquier evento: el de fin de auditoría y el de fin de
+ * sincronización de tráfico comparten destino, reintentos y reglas.
+ */
+export async function deliverWebhook<P extends { event: string }>(
+  payload: P,
   opts: DeliverOptions,
 ): Promise<DeliverResult> {
   const log = opts.log ?? rootLog;

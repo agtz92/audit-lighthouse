@@ -45,6 +45,30 @@ const tunablesSchema = z.strictObject({
   exclude: z.array(z.string().min(1)).optional(),
 });
 
+/**
+ * Propiedad de Search Console: de dominio (`sc-domain:ejemplo.com`) o de
+ * prefijo de URL (`https://www.ejemplo.com/`, con la diagonal final, que es
+ * como Google la nombra y como hay que mandarla).
+ */
+export const GSC_PROPERTY = /^(sc-domain:[a-z0-9.-]+|https?:\/\/[^\s]+\/)$/i;
+/** Id numérico de una propiedad de GA4. No es el ID de medición G-XXXX. */
+export const GA4_PROPERTY = /^\d{6,12}$/;
+
+const googleSchema = z.strictObject({
+  searchConsole: z
+    .string()
+    .trim()
+    .regex(GSC_PROPERTY, 'debe ser sc-domain:dominio.com o una URL completa terminada en /')
+    .optional(),
+  // Sin comillas en el YAML, 345678901 llega como número. Se acepta y se
+  // normaliza a texto: es un identificador, no una cantidad.
+  ga4Property: z
+    .union([z.string(), z.number().int()])
+    .transform((v) => String(v).trim().replace(/^properties\//, ''))
+    .pipe(z.string().regex(GA4_PROPERTY, 'debe ser el id numérico de la propiedad (Administrar › Detalles de la propiedad), no el G-XXXX'))
+    .optional(),
+});
+
 const siteSchema = tunablesSchema.extend({
   // El id acaba como nombre de carpeta en data/pdfs y como llave de historial en
   // la BD: solo minúsculas, dígitos y guiones, para que sea seguro en rutas.
@@ -65,6 +89,9 @@ const siteSchema = tunablesSchema.extend({
   // automático. No se exige que sean del mismo host: un sitio puede querer medir
   // su blog en un subdominio.
   pages: z.array(httpUrl).max(50).optional(),
+  // Conexión con Search Console y GA4. Opcional, y cada fuente por separado: un
+  // sitio sin ella se sigue auditando con Lighthouse igual que siempre.
+  google: googleSchema.optional(),
 });
 
 const fileSchema = z.strictObject({
@@ -86,6 +113,11 @@ export interface ResolvedSite {
   exclude: string[];
   /** Vacío = las páginas las elige el descubrimiento automático. */
   pages: string[];
+  /** null en cada fuente que el sitio no tiene conectada. */
+  google: {
+    searchConsole: string | null;
+    ga4Property: string | null;
+  };
 }
 
 /** Defaults de los defaults, cuando el YAML no dice nada. */
@@ -155,6 +187,10 @@ export function parseSitesConfig(raw: string, source = 'sites.yaml'): ResolvedSi
     // Una lista vacía se lee como ausente: es lo que queda en el YAML al
     // deseleccionar todo desde el dashboard, y significa «vuelve a automático».
     pages: site.pages ?? [],
+    google: {
+      searchConsole: site.google?.searchConsole ?? null,
+      ga4Property: site.google?.ga4Property ?? null,
+    },
   }));
 }
 

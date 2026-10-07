@@ -10,27 +10,10 @@
  */
 
 import { installProcessGuards } from './lib/guards.js';
-import { parseArgs } from 'node:util';
+import { parseCliArgs } from './cli-args.js';
 import { runAudit } from './run/orchestrator.js';
 import { closeDb } from './db/pool.js';
 import { log } from './lib/logger.js';
-
-export interface CliOptions {
-  site: string | undefined;
-  dryRun: boolean;
-}
-
-export function parseCliArgs(argv: string[]): CliOptions {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      site: { type: 'string' },
-      'dry-run': { type: 'boolean', default: false },
-    },
-    allowPositionals: false,
-  });
-  return { site: values.site, dryRun: values['dry-run'] === true };
-}
 
 async function main(): Promise<void> {
   installProcessGuards();

@@ -4,6 +4,10 @@ dist/
 .env
 *.log
 
+# Llave de la cuenta de servicio de Google: nunca al repo.
+secrets/*
+!secrets/.gitkeep
+
 # PDFs generados: se reemplazan cada corrida, no van al repo
 data/pdfs/*
 !data/pdfs/.gitkeep

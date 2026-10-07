@@ -40,6 +40,19 @@ describe('sitePdfPaths', () => {
     assert.match(p.tmpDir, /\.tmp-7$/);
   });
 
+  test('el servicio analytics usa temporales que la limpieza del worker no toca', () => {
+    const w = sitePdfPaths('/data/pdfs', 'x', 7, 'worker').tmpDir;
+    const a = sitePdfPaths('/data/pdfs', 'x', 7, 'analytics').tmpDir;
+    assert.notEqual(w, a);
+    assert.match(a, /\.tmp-analytics-7$/);
+  });
+
+  test('los cuatro documentos viven en la carpeta del sitio', () => {
+    const p = sitePdfPaths('/data/pdfs', 'x', 1);
+    assert.match(p.analitica, /analitica\.pdf$/);
+    assert.match(p.integral, /integral\.pdf$/);
+  });
+
   test('cada corrida usa su propio temporal', () => {
     assert.notEqual(
       sitePdfPaths('/data/pdfs', 'x', 1).tmpDir,
