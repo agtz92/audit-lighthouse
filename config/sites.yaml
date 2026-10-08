@@ -35,6 +35,9 @@ sites:
     url: https://www.corthw.com
     sitemap: https://www.corthw.com/sitemap.xml # 32 URLs
     enabled: true
+    google:
+      searchConsole: https://www.corthw.com/
+      ga4Property: "398989171"
     pages:
       - https://www.corthw.com/
       - https://www.corthw.com/productos
@@ -47,6 +50,9 @@ sites:
     url: https://www.matmarkt.com
     sitemap: https://www.matmarkt.com/sitemap.xml # 62 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:matmarkt.com
+      ga4Property: "296071280"
 
   - id: grupohule
     name: Grupo Hule
@@ -55,6 +61,8 @@ sites:
     # El descubridor las acepta porque normaliza www/apex como el mismo sitio.
     sitemap: https://www.grupohule.com/sitemap.xml # 78 URLs vía sitemap-0.xml
     enabled: true
+    google:
+      searchConsole: sc-domain:grupohule.com
 
   - id: placadehule
     name: Placa de Hule
@@ -67,24 +75,33 @@ sites:
     url: https://www.hulequeretaro.com
     sitemap: https://www.hulequeretaro.com/sitemap.xml # 183 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:hulequeretaro.com
 
   - id: expertoshule
     name: Expertos Hule
     url: https://www.expertoshule.com
     sitemap: https://www.expertoshule.com/sitemap.xml # 192 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:expertoshule.com
+      ga4Property: "302903655"
 
   - id: hule-mx
     name: Hule MX
     url: https://www.hule.com.mx
     sitemap: https://www.hule.com.mx/sitemap.xml # 195 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:hule.com.mx
 
   - id: phasa
     name: PHASA
     url: https://www.phasa.mx
     sitemap: https://www.phasa.mx/sitemap.xml # 348 URLs
     enabled: true
+    google:
+      searchConsole: https://www.phasa.mx/
 
   - id: rollospvc
     name: Rollos PVC
@@ -92,6 +109,9 @@ sites:
     # 2026-09-29: responde HTTP 503 (también con User-Agent de navegador real).
     # Se deja habilitado a propósito: el dashboard debe mostrarlo caído.
     enabled: true
+    google:
+      searchConsole: sc-domain:rollospvc.com
+      ga4Property: "282863206"
 
   # ── Contenido y otros ─────────────────────────────────────────────────────
   - id: mexgamer
@@ -99,24 +119,36 @@ sites:
     url: https://www.mexgamer.com
     sitemap: https://www.mexgamer.com/sitemap.xml # 1257 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:mexgamer.com
+      ga4Property: "505815477"
 
   - id: 3minread
     name: 3 Min Read
     url: https://www.3minread.com
     sitemap: https://www.3minread.com/sitemap.xml # 1228 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:3minread.com
+      ga4Property: "289142380"
 
   - id: 10datos
     name: 10 Datos
     url: https://www.10datos.com
     # 2026-09-29: HTTP 503.
     enabled: true
+    google:
+      searchConsole: sc-domain:10datos.com
+      ga4Property: "266673593"
 
   - id: antesdelexamen
     name: Antes del Examen
     url: https://www.antesdelexamen.com
     # 2026-09-29: HTTP 503.
     enabled: true
+    google:
+      searchConsole: sc-domain:antesdelexamen.com
+      ga4Property: "255828362"
 
   - id: compatips
     name: CompaTips
@@ -124,12 +156,16 @@ sites:
     # robots.txt anuncia /sitemap.xml pero esa URL no devuelve XML.
     # Se descubre por crawl de links internos.
     enabled: true
+    google:
+      searchConsole: sc-domain:compatips.com
 
   - id: foodplusfeed
     name: Food Plus Feed
     url: https://www.foodplusfeed.com
     sitemap: https://www.foodplusfeed.com/sitemap.xml # 23 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:foodplusfeed.com
 
   - id: kimixcenter
     name: Kimix Center
@@ -155,9 +191,15 @@ sites:
     url: https://www.continuu.it
     sitemap: https://www.continuu.it/sitemap.xml # 26 URLs
     enabled: true
+    google:
+      searchConsole: sc-domain:continuu.it
+      ga4Property: "538893744"
   - id: sombrealo
     name: Sombrealo
     url: https://www.sombrealo.com
     sitemap: https://www.sombrealo.com/sitemap.xml
     enabled: true
     maxPages: 5
+    google:
+      searchConsole: sc-domain:sombrealo.com
+      ga4Property: "292461548"
