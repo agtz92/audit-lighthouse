@@ -230,6 +230,35 @@ Si el worker está auditando cuando el servicio `analytics` termina de
 sincronizar, los PDFs de tráfico esperan a que acabe: los dos Chromium juntos no
 caben en la memoria de Docker. Los datos se guardan sin esperar.
 
+### Límites
+
+- **La propiedad se escribe exactamente como en Search Console.** Si el sitio
+  está dado de alta como `https://www.ejemplo.com/` y se escribe
+  `sc-domain:ejemplo.com`, Google contesta «sin permiso» aunque la cuenta sí
+  tenga acceso: para la API es otra propiedad, que no existe. La lista del campo
+  muestra las propiedades que la cuenta ve tal como hay que escribirlas.
+- **De consultas y páginas solo se guardan las 50 principales** de cada uno de
+  los cuatro periodos, y cada sincronización las reemplaza. La historia completa
+  es solo de los totales diarios; no hay forma de ver qué consultas traían
+  tráfico hace tres meses. Es a propósito: el sistema monitorea, no es un
+  almacén de datos para análisis.
+- **Las consultas anónimas no aparecen.** Google oculta las búsquedas poco
+  frecuentes por privacidad, así que la suma de la tabla de consultas es menor
+  que el total de clics. En sitios pequeños la diferencia puede ser grande.
+- **Los usuarios no se suman entre días.** Un mismo usuario cuenta una vez por
+  cada día que volvió. Por eso la pestaña Tráfico no muestra usuarios del
+  periodo, la gráfica del sitio los muestra por día, y los PDFs usan el total
+  del periodo que calcula GA4.
+- **Search Console va 2 a 3 días atrás**, y en los primeros días de cada mes el
+  informe mensual cubre un mes todavía incompleto; el PDF lo avisa.
+- **El estado de cada página viene de la auditoría.** Una página con tráfico que
+  no está entre las que se auditan sale como «no auditada»; se agrega en
+  Sitios › el sitio › Páginas que se auditan.
+- **Cuota de Google.** Una sincronización hace unas 20 llamadas por sitio y la
+  carga inicial de 16 meses, una por fuente. Si Google responde que se agotó la
+  cuota, se reintenta con espera y, si no alcanza, el sitio queda con error
+  hasta la siguiente sincronización.
+
 ---
 
 ## Correr una auditoría manual
