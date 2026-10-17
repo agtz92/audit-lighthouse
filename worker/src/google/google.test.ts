@@ -4,7 +4,7 @@ import { generateKeyPairSync, createVerify } from 'node:crypto';
 import { parseServiceAccountKey, signAssertion, TokenSource, CredentialsError, SCOPES } from './auth.js';
 import { classifyGoogleError, GoogleClient, GoogleApiError } from './client.js';
 import { parseDailyRows, parseDimensionRows } from './search-console.js';
-import { parseDaily, parsePeriodReports, gaDate, namedRows } from './ga4.js';
+import { parseDaily, parsePeriodReports, gaDate, namedRows, classifyAiSource, parseAiDaily, parseAiPeriod } from './ga4.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const PEM = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -178,5 +178,59 @@ describe('GA4', () => {
   test('un informe que no llegó no rompe nada', () => {
     assert.deepEqual(namedRows(undefined), []);
     assert.equal(parsePeriodReports([]).totals.sessions, 0);
+  });
+});
+
+describe('visitas desde asistentes de IA', () => {
+  const mets = [{ name: 'sessions' }, { name: 'engagedSessions' }, { name: 'keyEvents' }];
+  const fila = (dims: string[], vals: number[]) => ({
+    dimensionValues: dims.map((value) => ({ value })),
+    metricValues: vals.map((v) => ({ value: String(v) })),
+  });
+
+  test('clasifica las fuentes con que llega cada asistente', () => {
+    assert.equal(classifyAiSource('chatgpt.com'), 'ChatGPT');
+    assert.equal(classifyAiSource('chat.openai.com'), 'ChatGPT');
+    assert.equal(classifyAiSource('perplexity.ai'), 'Perplexity');
+    assert.equal(classifyAiSource('claude.ai'), 'Claude');
+    assert.equal(classifyAiSource('gemini.google.com'), 'Gemini');
+    assert.equal(classifyAiSource('copilot.microsoft.com'), 'Copilot');
+    assert.equal(classifyAiSource('google'), null);
+    assert.equal(classifyAiSource('claudia-blog.com'), null);
+  });
+
+  test('la serie diaria trae todos los días, con cero los que no llegó nadie', () => {
+    const report = {
+      dimensionHeaders: [{ name: 'date' }, { name: 'sessionSource' }],
+      metricHeaders: mets,
+      rows: [
+        fila(['20261002', 'chatgpt.com'], [3, 2, 1]),
+        fila(['20261002', 'openai'], [1, 1, 0]),
+        fila(['20261002', 'perplexity.ai'], [2, 0, 0]),
+        // Pasó el filtro de GA4 pero no es un asistente.
+        fila(['20261002', 'claudia-blog.com'], [9, 9, 9]),
+      ],
+    };
+    const dias = parseAiDaily(report, '2026-10-01', '2026-10-03');
+    assert.deepEqual(dias.map((d) => d.date), ['2026-10-01', '2026-10-02', '2026-10-03']);
+    assert.equal(dias[0]?.sessions, 0);
+    assert.deepEqual(dias[1], { date: '2026-10-02', sessions: 6, engagedSessions: 3, keyEvents: 1, byAssistant: { ChatGPT: 4, Perplexity: 2 } });
+  });
+
+  test('los desgloses juntan las fuentes de un mismo asistente', () => {
+    const r = parseAiPeriod([
+      {
+        dimensionHeaders: [{ name: 'sessionSource' }],
+        metricHeaders: mets,
+        rows: [fila(['perplexity.ai'], [5, 1, 0]), fila(['chatgpt.com'], [4, 2, 0]), fila(['openai'], [3, 1, 0])],
+      },
+      {
+        dimensionHeaders: [{ name: 'landingPage' }, { name: 'sessionSource' }],
+        metricHeaders: mets,
+        rows: [fila(['/a', 'chatgpt.com'], [2, 1, 0]), fila(['/a', 'perplexity.ai'], [1, 0, 0]), fila(['/b', 'claudia-blog.com'], [9, 0, 0])],
+      },
+    ]);
+    assert.deepEqual(r.assistants.map((a) => [a.key, a.sessions]), [['ChatGPT', 7], ['Perplexity', 5]]);
+    assert.deepEqual(r.landing.map((l) => [l.key, l.sessions]), [['/a', 3]]);
   });
 });

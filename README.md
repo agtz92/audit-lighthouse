@@ -13,7 +13,9 @@ Cada corrida, por sitio:
    renderizado.
 2. **Mide disponibilidad y velocidad** de cada página: status HTTP, cadena de
    redirecciones, TTFB, tiempo de carga, peso transferido y número de requests.
-3. **Revisa el certificado TLS** del dominio.
+3. **Revisa el certificado TLS** del dominio y **si los asistentes de IA pueden
+   leer el sitio**: robots.txt por bot, el firewall, el HTML sin JavaScript y
+   `llms.txt`.
 4. **Mide rendimiento con Lighthouse** (escritorio y móvil) sobre la URL
    principal, en una segunda fase con la máquina en silencio.
 5. **Genera los informes**: `desktop.pdf` y `mobile.pdf`, y `integral.pdf` si el
@@ -258,6 +260,69 @@ caben en la memoria de Docker. Los datos se guardan sin esperar.
   carga inicial de 16 meses, una por fuente. Si Google responde que se agotó la
   cuota, se reintenta con espera y, si no alcanza, el sitio queda con error
   hasta la siguiente sincronización.
+
+---
+
+## Asistentes de IA
+
+Ningún asistente —ChatGPT, Claude, Perplexity, Gemini, Copilot— publica cuántas
+veces mostró un sitio en sus respuestas, y Search Console mezcla las
+impresiones de AI Overviews con las de la búsqueda normal sin separarlas. Lo que
+sí se mide, en **Sitio › Asistentes de IA**:
+
+### Si pueden leer el sitio
+
+Lo revisa cada auditoría, junto al certificado, solo con peticiones HTTP
+(`worker/src/audit/ai-readiness.ts`). Queda en `site_runs.ai_readiness`.
+
+- **robots.txt por bot**, interpretado como lo haría el bot (RFC 9309: grupo
+  propio o el de `*`, gana la regla más larga). Los bots se agrupan por lo que
+  cuesta bloquearlos:
+  - *índice de citas* (`OAI-SearchBot`, `Claude-SearchBot`, `PerplexityBot`,
+    `Bingbot` para Copilot) y *consulta en vivo* (`ChatGPT-User`, `Claude-User`,
+    `Perplexity-User`): bloquearlos es no salir citado. Es **crítico**.
+  - *entrenamiento* (`GPTBot`, `ClaudeBot`, `Google-Extended`,
+    `Applebot-Extended`, `meta-externalagent`, `CCBot`): bloquearlos no impide
+    salir citado; es una decisión válida y solo se anota.
+- **El firewall**: pide la home con el user-agent de `OAI-SearchBot`,
+  `ChatGPT-User`, `Claude-User` y `PerplexityBot`, y la compara con la respuesta
+  a un navegador normal. Un 403 o una página de reto solo para el bot suele ser
+  «Bloquear bots de IA» de Cloudflare o una regla del WAF. **Ojo:** la prueba
+  sale de esta Mac, no de las IPs del bot; un firewall que verifica IPs puede
+  rechazarla y dejar pasar al bot real. Confírmalo en los registros del firewall
+  antes de cambiar nada.
+- **El HTML sin JavaScript**: los fetchers de los asistentes no ejecutan JS. Si
+  la home trae menos de 150 palabras de texto en el HTML crudo, lo que se pinta
+  en el navegador no les llega. También: título, meta description, JSON-LD,
+  `lang`, canonical y `noindex`.
+- **`/llms.txt`**: si existe y empieza con `# Nombre`. Un 200 que devuelve la
+  home en HTML no cuenta. Es una propuesta que ningún asistente garantiza leer,
+  así que su ausencia es solo una nota.
+
+### Cuántas visitas mandan
+
+Lo trae la sincronización de GA4, con su propia serie (`ga_ai_daily`) y su
+propia carga inicial de 16 meses: las sesiones cuya fuente es un asistente
+(`chatgpt.com` —ChatGPT agrega `utm_source=chatgpt.com`—, `perplexity.ai`,
+`claude.ai`, `gemini.google.com`, `copilot.microsoft.com`, DeepSeek, Meta AI,
+Grok y Mistral), por día y por asistente, con las páginas de entrada de los
+últimos 28 días. La pestaña **Tráfico** suma la columna *Desde IA*.
+
+Si esta parte falla, GA4 sigue contando como sincronizado: es un dato de apoyo,
+como la lista de eventos clave.
+
+### Límites
+
+- **No son impresiones.** Son visitas: alguien vio la respuesta y además hizo
+  clic. Las citas que nadie abrió no dejan rastro en ninguna parte que este
+  sistema pueda leer.
+- **Se pierde lo que llega sin referrer.** Las apps de escritorio y de teléfono
+  a menudo no lo mandan y esas visitas caen en *Directo*. El número real es
+  mayor.
+- **Lo más parecido a una impresión** son las visitas de `ChatGPT-User`,
+  `Claude-User` y `Perplexity-User` en los registros del servidor, y este
+  sistema no los ve: audita desde fuera. Bing Webmaster Tools tiene un reporte
+  de citas en Copilot que tampoco se integra aquí.
 
 ---
 

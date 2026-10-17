@@ -236,3 +236,141 @@ export async function listGaProperties(client: GoogleClient): Promise<GaProperty
   } while (pageToken !== undefined);
   return out.sort((a, b) => `${a.account} ${a.name}`.localeCompare(`${b.account} ${b.name}`));
 }
+
+// ── Visitas desde asistentes de IA ──────────────────────────────────────────
+
+/**
+ * Cada asistente y las fuentes con que llega a GA4. ChatGPT agrega
+ * utm_source=chatgpt.com a sus enlaces; los demás llegan por referrer. El
+ * orden importa: gana el primero que coincide.
+ *
+ * Solo se ve lo que trae referrer o utm. Las apps de escritorio y móviles a
+ * menudo no lo mandan, y esas visitas caen en «Directo» sin forma de separarlas.
+ */
+export const AI_ASSISTANTS: Array<{ name: string; pattern: RegExp }> = [
+  { name: 'ChatGPT', pattern: /chatgpt\.com|chat\.openai\.com|^openai$|^chatgpt$/i },
+  { name: 'Perplexity', pattern: /perplexity/i },
+  { name: 'Claude', pattern: /claude\.ai|^claude$/i },
+  { name: 'Gemini', pattern: /gemini\.google|bard\.google|^gemini$/i },
+  { name: 'Copilot', pattern: /copilot\.microsoft|copilot\.cloud\.microsoft|^copilot$/i },
+  { name: 'DeepSeek', pattern: /deepseek/i },
+  { name: 'Meta AI', pattern: /meta\.ai/i },
+  { name: 'Grok', pattern: /grok\.com|^grok$/i },
+  { name: 'Mistral', pattern: /chat\.mistral\.ai/i },
+];
+
+/**
+ * El filtro que se le manda a GA4: un superconjunto barato de los patrones de
+ * arriba (RE2, coincidencia parcial). Lo que pase el filtro y no clasifique se
+ * descarta en classifyAiSource, así que un falso positivo aquí no ensucia nada.
+ */
+export const AI_SOURCE_REGEX = 'chatgpt|openai|perplexity|claude|gemini\.google|bard\.google|^gemini$|copilot|deepseek|meta\.ai|grok|mistral';
+
+export function classifyAiSource(source: string): string | null {
+  const s = source.trim();
+  return AI_ASSISTANTS.find((a) => a.pattern.test(s))?.name ?? null;
+}
+
+const AI_FILTER = {
+  filter: { fieldName: 'sessionSource', stringFilter: { matchType: 'PARTIAL_REGEXP', value: AI_SOURCE_REGEX, caseSensitive: false } },
+};
+
+export interface GaAiDailyRow {
+  date: string;
+  sessions: number;
+  engagedSessions: number;
+  keyEvents: number;
+  byAssistant: Record<string, number>;
+}
+
+/** Un día por cada fecha del rango, con cero si no llegó nadie. */
+export function parseAiDaily(report: Report | undefined, startDate: string, endDate: string): GaAiDailyRow[] {
+  const dias = new Map<string, GaAiDailyRow>();
+  for (let d = startDate; d <= endDate; d = addIsoDay(d)) {
+    dias.set(d, { date: d, sessions: 0, engagedSessions: 0, keyEvents: 0, byAssistant: {} });
+  }
+  for (const r of namedRows(report)) {
+    const nombre = classifyAiSource(r.dims.sessionSource ?? '');
+    const dia = dias.get(gaDate(r.dims.date ?? ''));
+    if (nombre === null || dia === undefined) continue;
+    const s = Math.round(r.mets.sessions ?? 0);
+    dia.sessions += s;
+    dia.engagedSessions += Math.round(r.mets.engagedSessions ?? 0);
+    dia.keyEvents = Math.round((dia.keyEvents + (r.mets.keyEvents ?? 0)) * 100) / 100;
+    dia.byAssistant[nombre] = (dia.byAssistant[nombre] ?? 0) + s;
+  }
+  return [...dias.values()];
+}
+
+function addIsoDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function fetchGaAiDaily(
+  client: GoogleClient,
+  propertyId: string,
+  startDate: string,
+  endDate: string,
+): Promise<GaAiDailyRow[]> {
+  const report = await client.request<Report>(API_DATA, `${DATA}/${prop(propertyId)}:runReport`, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'date' }, { name: 'sessionSource' }],
+    metrics: BREAKDOWN_METRICS,
+    dimensionFilter: AI_FILTER,
+    limit: 10000,
+  });
+  return parseAiDaily(report, startDate, endDate);
+}
+
+export interface GaAiPeriod {
+  assistants: GaLabeledRow[];
+  /** Páginas de entrada de las visitas que llegaron desde un asistente. */
+  landing: GaLabeledRow[];
+}
+
+/**
+ * Suma las filas que vienen de un asistente agrupándolas por `keyOf`: por el
+ * nombre del asistente (chatgpt.com y openai son la misma fila) o por la
+ * página de entrada. Lo que pasó el filtro de GA4 sin ser un asistente se tira.
+ */
+function sumAi(report: Report | undefined, keyOf: (row: NamedRow, assistant: string) => string): GaLabeledRow[] {
+  const acc = new Map<string, GaLabeledRow>();
+  for (const r of namedRows(report)) {
+    const nombre = classifyAiSource(r.dims.sessionSource ?? '');
+    if (nombre === null) continue;
+    const key = keyOf(r, nombre);
+    const fila = acc.get(key) ?? { key, sessions: 0, engagedSessions: 0, keyEvents: 0 };
+    fila.sessions += Math.round(r.mets.sessions ?? 0);
+    fila.engagedSessions += Math.round(r.mets.engagedSessions ?? 0);
+    fila.keyEvents = Math.round((fila.keyEvents + (r.mets.keyEvents ?? 0)) * 100) / 100;
+    acc.set(key, fila);
+  }
+  return [...acc.values()].sort((a, b) => b.sessions - a.sessions);
+}
+
+export function parseAiPeriod(reports: Report[]): GaAiPeriod {
+  return {
+    assistants: sumAi(reports[0], (_, nombre) => nombre),
+    landing: sumAi(reports[1], (r) => r.dims.landingPage || '(sin dato)').slice(0, 25),
+  };
+}
+
+export async function fetchGaAiPeriod(
+  client: GoogleClient,
+  propertyId: string,
+  startDate: string,
+  endDate: string,
+): Promise<GaAiPeriod> {
+  const dateRanges = [{ startDate, endDate }];
+  const porSesiones = [{ metric: { metricName: 'sessions' }, desc: true }];
+  const res = await client.request<{ reports?: Report[] }>(API_DATA, `${DATA}/${prop(propertyId)}:batchRunReports`, {
+    requests: [
+      { dateRanges, dimensions: [{ name: 'sessionSource' }], metrics: BREAKDOWN_METRICS, dimensionFilter: AI_FILTER, orderBys: porSesiones, limit: 50 },
+      // Con la fuente al lado, para descartar lo que pasó el filtro sin ser un asistente.
+      { dateRanges, dimensions: [{ name: 'landingPage' }, { name: 'sessionSource' }], metrics: BREAKDOWN_METRICS, dimensionFilter: AI_FILTER, orderBys: porSesiones, limit: 200 },
+    ],
+  });
+  return parseAiPeriod(res.reports ?? []);
+}

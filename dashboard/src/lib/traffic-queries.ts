@@ -293,7 +293,7 @@ export interface SiteTraffic {
   health: Record<string, { httpStatus: number | null; loadMs: number | null; ok: boolean }>;
 }
 
-function addDays(iso: string, n: number): string {
+export function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
@@ -307,7 +307,7 @@ function addDays(iso: string, n: number): string {
  * se sabe. Sin esa distinción, un sitio conectado hace dos semanas mostraría un
  * periodo anterior plano en cero, como si el tráfico se hubiera disparado.
  */
-function pares(rows: Map<string, number>, anchor: string, days: number, desde: string | null): DailyPair[] {
+export function pares(rows: Map<string, number>, anchor: string, days: number, desde: string | null): DailyPair[] {
   const valor = (d: string): number | null => (desde === null || d < desde ? null : rows.get(d) ?? 0);
   const out: DailyPair[] = [];
   for (let i = days - 1; i >= 0; i -= 1) {

@@ -6,6 +6,7 @@ import { readSitesFile, type SiteEntry } from '@/lib/sites-file';
 import { analyticsHealth } from '@/lib/analytics-control';
 import { trafficPdfs } from '@/lib/pdf-files';
 import { Sparkline, RelDelta } from '@/components/sparkline';
+import { fetchAiSessionsBySite } from '@/lib/ai-queries';
 import { Score } from '@/components/indicators';
 import { SyncNow } from '@/components/sync-now';
 import { AutoRefresh } from '@/components/auto-refresh';
@@ -63,10 +64,11 @@ export default async function TraficoPage({ searchParams }: { searchParams: Prom
     // Sitios ya avisa del error de lectura.
   }
 
-  const [todas, [ultima], salud] = await Promise.all([
+  const [todas, [ultima], salud, ia] = await Promise.all([
     fetchTrafficOverview(range),
     fetchAnalyticsRuns(1),
     analyticsHealth(),
+    fetchAiSessionsBySite(range),
   ]);
 
   const porId = new Map(entries.map((e) => [e.id, e]));
@@ -181,6 +183,7 @@ export default async function TraficoPage({ searchParams }: { searchParams: Prom
                   <th className="num">Sesiones</th>
                   <th className="num">Interacción</th>
                   <th className="num">Ev. clave</th>
+                  <th className="num" title="Sesiones que llegaron desde ChatGPT, Perplexity, Claude, Gemini o Copilot">Desde IA</th>
                   <th className="num" title="Rendimiento móvil de Lighthouse en la última medición">Perf. móvil</th>
                   <th>Informes</th>
                 </tr>
@@ -222,6 +225,12 @@ export default async function TraficoPage({ searchParams }: { searchParams: Prom
                         {r.ga === null ? '—' : r.keyEventsDefined === 0 && r.ga.keyEvents === 0
                           ? <span className="score none" title="La propiedad no tiene eventos clave definidos">sin definir</span>
                           : fmtNum(r.ga.keyEvents)}
+                      </td>
+                      <td className="num">
+                        {ia.get(r.siteId) === undefined ? '—' : (
+                          <Link href={`/sites/${r.siteId}/ia?range=${range}`}>{fmtNum(ia.get(r.siteId)?.sessions ?? 0)}</Link>
+                        )}
+                        {ia.get(r.siteId) !== undefined && <RelDelta current={ia.get(r.siteId)?.sessions ?? null} previous={ia.get(r.siteId)?.prev ?? null} />}
                       </td>
                       <td className="num"><Score value={r.mobilePerformance} /></td>
                       <td>

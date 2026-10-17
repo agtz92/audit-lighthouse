@@ -109,6 +109,7 @@ async function main(): Promise<void> {
           valid: true, issuer: null, validFrom: null, validTo: null,
           daysRemaining: snap.certDaysRemaining, error: null,
         },
+        aiReadiness: null,
         errorCategory: null, errorMessage: null, durationMs: 0,
         pages: [], homeUrl: null,
       })),

@@ -21,11 +21,11 @@ import { syncSites } from '../db/sites.js';
 import type { RunStatus, RunTrigger } from '../db/runs.js';
 import {
   startAnalyticsRun, finishAnalyticsRun, startAnalyticsSiteRun, finishAnalyticsSiteRun, recordAnalyticsPdf,
-  maxStoredDate, upsertGscDaily, upsertGaDaily, saveBreakdown, purgeAnalytics, fetchGscDailyRange,
+  maxStoredDate, upsertGscDaily, upsertGaDaily, upsertGaAiDaily, saveBreakdown, purgeAnalytics, fetchGscDailyRange,
   type SourceOutcome,
 } from '../db/analytics.js';
 import { fetchGscDaily, fetchGscTop } from '../google/search-console.js';
-import { fetchGaDaily, fetchGaPeriod, fetchKeyEventNames, type GaTotals } from '../google/ga4.js';
+import { fetchGaDaily, fetchGaPeriod, fetchGaAiDaily, fetchGaAiPeriod, fetchKeyEventNames, type GaTotals } from '../google/ga4.js';
 import { GoogleApiError, type GoogleClient } from '../google/client.js';
 import { googleClient } from './google.js';
 import { addDays, isoToday, periodRanges, syncWindow, PERIOD_KEYS } from './periods.js';
@@ -149,6 +149,23 @@ async function syncSite(
     } catch (err) {
       fallo(ga, 'ga4', err);
     }
+
+    // Visitas desde asistentes de IA, con su propia ventana: la tabla es más
+    // nueva que ga_daily y su primera carga necesita los 16 meses aunque
+    // ga_daily ya esté al día. Es un dato de apoyo: si falla, GA4 sigue 'ok'.
+    if (ga.status === 'ok') {
+      try {
+        const guardadoIa = await maxStoredDate('ga_ai_daily', site.id);
+        const v = syncWindow({ today, maxStored: guardadoIa, refreshDays: cfg.ANALYTICS_REFRESH_DAYS, backfillDays: cfg.ANALYTICS_BACKFILL_DAYS });
+        const filas = await fetchGaAiDaily(client, prop, v.start, v.end);
+        if (!dryRun) await upsertGaAiDaily(site.id, filas);
+        log.info('ga4: visitas desde asistentes de IA', {
+          desde: v.start, hasta: v.end, sesiones: filas.reduce((a, f) => a + f.sessions, 0), carga_inicial: v.backfill,
+        });
+      } catch (err) {
+        log.warn('ga4: no se pudieron leer las visitas desde asistentes de IA', { motivo: describe(err).message });
+      }
+    }
   }
 
   // ── 2. Desgloses por periodo ───────────────────────────────────────────
@@ -199,6 +216,18 @@ async function syncSite(
       ga.previousSessions = totales.prev28?.sessions ?? null;
     } catch (err) {
       fallo(ga, 'ga4 (desgloses)', err);
+    }
+
+    try {
+      for (const p of PERIOD_KEYS) {
+        const r = await fetchGaAiPeriod(client, prop, ranges[p].start, ranges[p].end);
+        if (!dryRun) {
+          await saveBreakdown(site.id, p, 'ga_ai_assistants', ranges[p], r.assistants);
+          await saveBreakdown(site.id, p, 'ga_ai_landing', ranges[p], r.landing);
+        }
+      }
+    } catch (err) {
+      log.warn('ga4: no se pudieron leer los desgloses de asistentes de IA', { motivo: describe(err).message });
     }
 
     // Información de apoyo: si la Admin API no está habilitada, los números

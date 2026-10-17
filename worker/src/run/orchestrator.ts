@@ -290,6 +290,7 @@ async function skipSite(site: ResolvedSite, runId: number | null, elapsedMs: num
     candidateUrls: [],
     homeHttpStatus: null,
     cert: null,
+    aiReadiness: null,
     errorCategory: 'timeout',
     errorMessage: 'no arrancó: presupuesto de la corrida agotado',
     durationMs: 0,

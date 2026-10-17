@@ -5,7 +5,7 @@
 import { db } from './pool.js';
 import type { RunStatus, RunTrigger, PdfMeta } from './runs.js';
 import type { GscDailyRow } from '../google/search-console.js';
-import type { GaDailyRow } from '../google/ga4.js';
+import type { GaDailyRow, GaAiDailyRow } from '../google/ga4.js';
 import type { Logger } from '../lib/logger.js';
 import type { PeriodKey } from '../analytics/periods.js';
 
@@ -110,7 +110,7 @@ export async function recordAnalyticsPdf(siteRunId: number, meta: PdfMeta | null
 }
 
 /** Último día guardado de una fuente, como YYYY-MM-DD. */
-export async function maxStoredDate(table: 'gsc_daily' | 'ga_daily', siteId: string): Promise<string | null> {
+export async function maxStoredDate(table: 'gsc_daily' | 'ga_daily' | 'ga_ai_daily', siteId: string): Promise<string | null> {
   const { rows } = await db().query<{ d: string | null }>(
     `SELECT to_char(max(date), 'YYYY-MM-DD') AS d FROM ${table} WHERE site_id = $1`,
     [siteId],
@@ -155,9 +155,31 @@ export async function upsertGaDaily(siteId: string, rows: GaDailyRow[]): Promise
   );
 }
 
+/** Visitas desde asistentes de IA, con el día sin visitas incluido. */
+export async function upsertGaAiDaily(siteId: string, rows: GaAiDailyRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db().query(
+    `INSERT INTO ga_ai_daily (site_id, date, sessions, engaged_sessions, key_events, by_assistant)
+     SELECT $1, d, s, e, k, b
+       FROM unnest($2::date[], $3::int[], $4::int[], $5::numeric[], $6::jsonb[]) AS t(d, s, e, k, b)
+     ON CONFLICT (site_id, date) DO UPDATE SET
+       sessions = EXCLUDED.sessions, engaged_sessions = EXCLUDED.engaged_sessions,
+       key_events = EXCLUDED.key_events, by_assistant = EXCLUDED.by_assistant`,
+    [
+      siteId,
+      rows.map((r) => r.date),
+      rows.map((r) => r.sessions),
+      rows.map((r) => r.engagedSessions),
+      rows.map((r) => r.keyEvents),
+      rows.map((r) => JSON.stringify(r.byAssistant)),
+    ],
+  );
+}
+
 export type BreakdownKind =
   | 'gsc_queries' | 'gsc_pages'
-  | 'ga_totals' | 'ga_channels' | 'ga_devices' | 'ga_landing' | 'ga_key_events';
+  | 'ga_totals' | 'ga_channels' | 'ga_devices' | 'ga_landing' | 'ga_key_events'
+  | 'ga_ai_assistants' | 'ga_ai_landing';
 
 export async function saveBreakdown(
   siteId: string,
@@ -200,12 +222,14 @@ export async function purgeAnalytics(runDays: number, dailyDays: number, log: Lo
   );
   const gsc = await db().query(`DELETE FROM gsc_daily WHERE date < current_date - $1::int`, [dailyDays]);
   const ga = await db().query(`DELETE FROM ga_daily WHERE date < current_date - $1::int`, [dailyDays]);
-  const total = (corridas.rowCount ?? 0) + (gsc.rowCount ?? 0) + (ga.rowCount ?? 0);
+  const ia = await db().query(`DELETE FROM ga_ai_daily WHERE date < current_date - $1::int`, [dailyDays]);
+  const total = (corridas.rowCount ?? 0) + (gsc.rowCount ?? 0) + (ga.rowCount ?? 0) + (ia.rowCount ?? 0);
   if (total > 0) {
     log.info('retención de tráfico', {
       corridas_borradas: corridas.rowCount ?? 0,
       dias_gsc_borrados: gsc.rowCount ?? 0,
       dias_ga_borrados: ga.rowCount ?? 0,
+      dias_ia_borrados: ia.rowCount ?? 0,
     });
   }
 }

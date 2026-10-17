@@ -6,6 +6,7 @@ import { db } from './pool.js';
 import type { ErrorCategory } from '../audit/page-metrics.js';
 import type { DiscoveryMethod } from '../discovery/index.js';
 import type { CertInfo } from '../audit/tls.js';
+import type { AiReadiness } from '../audit/ai-readiness.js';
 
 export type RunTrigger = 'scheduled' | 'manual' | 'recovery';
 export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
@@ -121,6 +122,8 @@ export interface SiteRunOutcome {
   cert: CertInfo | null;
   errorCategory: ErrorCategory | null;
   errorMessage: string | null;
+  /** null si no se alcanzó a revisar; deja lo que hubiera. */
+  aiReadiness?: AiReadiness | null;
 }
 
 export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome): Promise<void> {
@@ -144,7 +147,8 @@ export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome):
        cert_days_remaining = $15,
        cert_error          = $16,
        error_category      = $17,
-       error_message       = $18
+       error_message       = $18,
+       ai_readiness        = COALESCE($19::jsonb, ai_readiness)
      WHERE id = $1`,
     [
       siteRunId,
@@ -165,6 +169,7 @@ export async function finishSiteRun(siteRunId: number, outcome: SiteRunOutcome):
       outcome.cert?.error ?? null,
       outcome.errorCategory,
       outcome.errorMessage,
+      outcome.aiReadiness == null ? null : JSON.stringify(outcome.aiReadiness),
     ],
   );
 }

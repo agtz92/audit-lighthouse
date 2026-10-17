@@ -15,6 +15,7 @@ import type { Deadline } from '../lib/deadline.js';
 import { launchBrowser, newSiteContext, cdpPortForSlot } from '../audit/browser.js';
 import { auditPage, type ErrorCategory, type PageMetrics } from '../audit/page-metrics.js';
 import { checkCertificate, type CertInfo } from '../audit/tls.js';
+import { checkAiReadiness, type AiReadiness } from '../audit/ai-readiness.js';
 import {
   discoverPages,
   finalizeUrlList,
@@ -55,6 +56,8 @@ export interface SiteRunResult {
   abortedByDeadline: boolean;
   homeHttpStatus: number | null;
   cert: CertInfo | null;
+  /** Preparación para asistentes de IA; null si no se pudo revisar. */
+  aiReadiness: AiReadiness | null;
   errorCategory: ErrorCategory | null;
   errorMessage: string | null;
   durationMs: number;
@@ -95,6 +98,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     abortedByDeadline: false,
     homeHttpStatus: null as number | null,
     cert: null as CertInfo | null,
+    aiReadiness: null as AiReadiness | null,
     pages: [] as PageRow[],
     homeUrl: null as string | null,
     candidateUrls: [] as string[],
@@ -104,11 +108,18 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
   let context: BrowserContext | undefined;
 
   try {
-    // Descubrimiento y certificado en paralelo: ninguno depende del otro.
-    const [discovery, cert] = await Promise.all([
+    // Descubrimiento, certificado y preparación para IA en paralelo: los tres
+    // son red y ninguno depende de los otros.
+    const [discovery, cert, ai] = await Promise.all([
       discoverPages(site, { userAgent: deps.userAgent, signal: deps.deadline.signal, log }),
       checkCertificate(new URL(site.url).hostname, site.timeoutMs).catch((err: unknown) => {
         log.warn('no se pudo revisar el certificado', {
+          motivo: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }),
+      checkAiReadiness(site.url, { timeoutMs: site.timeoutMs, signal: deps.deadline.signal }).catch((err: unknown) => {
+        log.warn('no se pudo revisar la preparación para IA', {
           motivo: err instanceof Error ? err.message : String(err),
         });
         return null;
@@ -119,6 +130,15 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
     base.pagesDiscovered = discovery.discovered;
     base.truncated = discovery.truncated;
     base.cert = cert;
+    base.aiReadiness = ai;
+    if (ai !== null) {
+      log.info('preparación para IA revisada', {
+        criticos: ai.findings.filter((f) => f.level === 'critical').length,
+        avisos: ai.findings.filter((f) => f.level === 'warning').length,
+        palabras_sin_js: ai.html?.words ?? null,
+        llms_txt: ai.llmsTxt.present,
+      });
+    }
 
     log.info('páginas descubiertas', {
       metodo: discovery.method,
@@ -284,6 +304,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
         candidateUrls: base.candidateUrls,
         homeHttpStatus: base.homeHttpStatus,
         cert: base.cert,
+        aiReadiness: base.aiReadiness,
         errorCategory,
         errorMessage,
       });
@@ -316,6 +337,7 @@ export async function runSite(site: ResolvedSite, deps: RunSiteDeps): Promise<Si
         candidateUrls: base.candidateUrls,
         homeHttpStatus: base.homeHttpStatus,
         cert: base.cert,
+        aiReadiness: base.aiReadiness,
         errorCategory: 'unknown',
         errorMessage: message,
       }).catch(() => {});
