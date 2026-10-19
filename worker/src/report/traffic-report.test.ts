@@ -10,6 +10,9 @@ import { renderReportHtml } from './template.js';
 import { niceTicks, lineChartSvg } from './svg.js';
 import { Sections } from './brand.js';
 import type { ReportData } from './model.js';
+import type { GaAiDailyRow } from '../google/ga4.js';
+import { evaluateBots, aiFindings, type AiReadiness } from '../audit/ai-readiness.js';
+import { assistantAccess, aiAccessPriorities } from './ai-access.js';
 
 const consultant = { name: 'José Alfredo Gutiérrez Guerra', role: 'Consultor', credentials: 'ITE 2016' };
 
@@ -244,5 +247,128 @@ describe('plantillas', () => {
     assert.equal(p[0]?.title, 'Corregir /catalogo-2025');
     assert.equal(p.filter((x) => x.title === 'Reduce el JavaScript sin usar').length, 1);
     assert.ok(p.length <= 5);
+  });
+});
+
+function aiDias(start: string, n: number, porDia: Record<string, number>): GaAiDailyRow[] {
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(`${start}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    const sessions = Object.values(porDia).reduce((a, v) => a + v, 0);
+    return { date: d.toISOString().slice(0, 10), sessions, engagedSessions: Math.floor(sessions / 2), keyEvents: 0, byAssistant: { ...porDia } };
+  });
+}
+
+function conIa(over: Partial<NonNullable<BuildAnalyticsInput['ai']>> = {}): BuildAnalyticsInput {
+  return input({
+    ai: {
+      daily: aiDias('2026-09-01', 30, { ChatGPT: 3, Perplexity: 1 }),
+      previousDaily: aiDias('2026-08-01', 31, { ChatGPT: 2 }),
+      firstDate: '2025-06-01',
+      landing: [{ key: '/catalogo-2025', sessions: 40, engagedSessions: 10, keyEvents: 0 }, { key: '(not set)', sessions: 5, engagedSessions: 0, keyEvents: 0 }],
+      ...over,
+    },
+  });
+}
+
+function readiness(robots: string, probeBlocked = false): AiReadiness {
+  const parcial = {
+    checkedAt: '2026-10-07T12:00:00Z',
+    homeUrl: 'https://www.matmarkt.mx/',
+    robots: { status: 200, error: null, bots: evaluateBots(robots, '/') },
+    baseline: { status: 200, error: null, challenge: false },
+    probes: [{ token: 'ChatGPT-User', status: probeBlocked ? 403 : 200, blocked: probeBlocked, reason: probeBlocked ? '403' : null }],
+    llmsTxt: { status: 404, present: false, valid: false, bytes: 0, links: 0 },
+    html: { words: 40, title: 't', description: 'd', canonical: null, lang: 'es', h1: 1, jsonLdTypes: [], metaRobots: null },
+    xRobotsTag: null,
+  };
+  return { ...parcial, findings: aiFindings(parcial) };
+}
+
+describe('visitas desde asistentes de IA en los informes', () => {
+  test('suma por asistente y compara contra el periodo anterior', () => {
+    const ai = buildAnalyticsReport(conIa()).ai;
+    assert.ok(ai !== null);
+    assert.equal(ai.sessions, 120);
+    assert.equal(ai.previousSessions, 62);
+    assert.deepEqual(ai.assistants.map((a) => [a.key, a.sessions, a.previous]), [['ChatGPT', 90, 62], ['Perplexity', 30, 0]]);
+    assert.equal(ai.share, 120 / 11240);
+    assert.deepEqual(ai.landing.map((l) => l.path), ['/catalogo-2025']);
+  });
+
+  test('sin historia completa del periodo anterior no compara', () => {
+    const ai = buildAnalyticsReport(conIa({ firstDate: '2026-08-20' })).ai;
+    assert.equal(ai?.previousSessions, null);
+    assert.equal(ai?.assistants[0]?.previous, null);
+  });
+
+  test('sin visitas, sin la serie o sin GA4 no hay bloque', () => {
+    assert.equal(buildAnalyticsReport(conIa({ daily: aiDias('2026-09-01', 30, {}) })).ai, null);
+    assert.equal(buildAnalyticsReport(input({ ai: null })).ai, null);
+    assert.equal(buildAnalyticsReport({ ...conIa(), ga: null }).ai, null);
+  });
+
+  test('la sección aparece en los dos informes cuando hay visitas', async () => {
+    const d = buildAnalyticsReport(conIa());
+    const trafico = await renderAnalyticsHtml(d);
+    const integral = await renderIntegralHtml({ desktop: lighthouseData('desktop'), mobile: lighthouseData('mobile'), traffic: d });
+    for (const html of [trafico, integral]) {
+      assert.match(html, /Visitas desde asistentes de IA/);
+      assert.match(html, /ChatGPT/);
+      assert.match(html, /no impresiones/);
+    }
+    assert.match(analyticsVerdict(d), /asistentes de IA/);
+  });
+
+  test('sin visitas la sección no se imprime', async () => {
+    const d = buildAnalyticsReport(conIa({ daily: aiDias('2026-09-01', 30, {}) }));
+    assert.ok(!(await renderAnalyticsHtml(d)).includes('Asistentes de IA'));
+    const integral = await renderIntegralHtml({ desktop: lighthouseData('desktop'), mobile: lighthouseData('mobile'), traffic: d });
+    assert.ok(!integral.includes('Asistentes de IA'));
+  });
+});
+
+describe('acceso de los asistentes en el integral', () => {
+  test('resume por asistente: robots.txt, firewall o abierto', () => {
+    const acc = Object.fromEntries(assistantAccess(readiness('User-agent: PerplexityBot\nDisallow: /', true)).map((a) => [a.name, a.verdict]));
+    assert.deepEqual(acc, { ChatGPT: 'firewall', Claude: 'ok', Perplexity: 'robots', Copilot: 'ok' });
+  });
+
+  test('un asistente bloqueado va con lo urgente; la legibilidad, al final', () => {
+    const p = integralPriorities({
+      desktop: lighthouseData('desktop'),
+      mobile: lighthouseData('mobile'),
+      traffic: buildAnalyticsReport(input()),
+      aiReadiness: readiness('User-agent: OAI-SearchBot\nDisallow: /'),
+    }, 10);
+    const titulos = p.map((x) => x.title);
+    assert.equal(titulos[0], 'Corregir /catalogo-2025');
+    const iIa = titulos.indexOf('Dejar entrar a ChatGPT');
+    const iLh = titulos.indexOf('Reduce el JavaScript sin usar');
+    assert.ok(iIa > 0 && iIa < iLh);
+    assert.equal(titulos.at(-1), 'Hacer la home legible para los asistentes de IA');
+  });
+
+  test('bloquear solo entrenamiento no es una prioridad', () => {
+    assert.ok(!aiAccessPriorities(readiness('User-agent: GPTBot\nDisallow: /')).some((p) => p.severity === 'critical'));
+  });
+
+  test('el acceso sale en el integral aunque no haya visitas, con la numeración corrida', async () => {
+    const html = await renderIntegralHtml({
+      desktop: lighthouseData('desktop'),
+      mobile: lighthouseData('mobile'),
+      traffic: buildAnalyticsReport(conIa()),
+      aiReadiness: readiness('User-agent: OAI-SearchBot\nDisallow: /'),
+    });
+    assert.match(html, /Si los asistentes pueden leer el sitio/);
+    assert.match(html, /no puede leer el sitio/);
+    const numeros = [...html.matchAll(/<span class="n">(\d+)<\/span>/g)].map((m) => Number(m[1]));
+    assert.deepEqual(numeros, numeros.map((_, i) => i + 1));
+    const sinVisitas = await renderIntegralHtml({
+      desktop: lighthouseData('desktop'), mobile: lighthouseData('mobile'),
+      traffic: buildAnalyticsReport(input()), aiReadiness: readiness(''),
+    });
+    assert.match(sinVisitas, /Si los asistentes pueden leer el sitio/);
+    assert.ok(!sinVisitas.includes('Visitas desde asistentes de IA'));
   });
 });

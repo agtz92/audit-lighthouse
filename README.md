@@ -311,6 +311,21 @@ Grok y Mistral), por día y por asistente, con las páginas de entrada de los
 Si esta parte falla, GA4 sigue contando como sincronizado: es un dato de apoyo,
 como la lista de eventos clave.
 
+### En los informes
+
+- **`analitica.pdf` e `integral.pdf`** suman la hoja *Asistentes de IA* con las
+  visitas del periodo del informe contra el anterior, por asistente y por página
+  de entrada (cruzada con la auditoría), y una nota de que son visitas y no
+  impresiones. La hoja **no se imprime** si el sitio no tiene GA4, si la serie
+  todavía no se sincronizó o si en el periodo no llegó ninguna visita desde un
+  asistente.
+- **`integral.pdf`** agrega a esa hoja si cada asistente (ChatGPT, Claude,
+  Perplexity, Copilot) puede leer el sitio, con lo que lee sin JavaScript. Esta
+  parte sale aunque no haya visitas, porque viene de la auditoría. Un asistente
+  bloqueado por robots.txt o por el servidor entra a *Atender primero* junto con
+  lo urgente, y una home con poco texto sin JavaScript o sin datos
+  estructurados, al final.
+
 ### Límites
 
 - **No son impresiones.** Son visitas: alguien vio la respuesta y además hizo

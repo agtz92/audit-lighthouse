@@ -39,7 +39,7 @@ export const ANALYTICS_CSS = `
  * flecha dice si mejoró (▲) o empeoró (▼), el signo hacia dónde se movió el
  * número, y el color lo refuerza.
  */
-function delta(current: number | null, previous: number | null, opts: { lowerIsBetter?: boolean; absolute?: boolean; digits?: number } = {}): string {
+export function delta(current: number | null, previous: number | null, opts: { lowerIsBetter?: boolean; absolute?: boolean; digits?: number } = {}): string {
   if (current === null || previous === null) return '<span class="d">sin comparación</span>';
   if (opts.absolute === true) {
     const d = current - previous;
@@ -54,11 +54,11 @@ function delta(current: number | null, previous: number | null, opts: { lowerIsB
   return `<span class="d ${mejora ? 'g' : 'b'}">${mejora ? '▲' : '▼'} ${r > 0 ? '+' : '−'}${pct(Math.abs(r), 1)}</span>`;
 }
 
-function kpi(label: string, valor: string, cambio: string): string {
+export function kpi(label: string, valor: string, cambio: string): string {
   return `<div><dt>${label}</dt><dd>${valor}</dd>${cambio}</div>`;
 }
 
-function estado(p: PageTrafficRow): string {
+export function estado(p: PageTrafficRow): string {
   const problema = pageProblem(p);
   if (p.health === null) return '<span class="hint">no auditada</span>';
   if (problema === 'down') return `<span class="tag tag-b">${p.health.httpStatus ?? 'error'}</span>`;
@@ -210,6 +210,73 @@ export function trafficSheet(data: AnalyticsReportData, s: Sections, conMetodo =
 </section>`;
 }
 
+/**
+ * Visitas desde asistentes de IA: indicadores, por asistente y páginas de
+ * entrada. Sin visitas en el periodo no hay bloque —`data.ai` es null— y la
+ * hoja no se imprime.
+ */
+export function aiVisitsBlock(data: AnalyticsReportData, s: Sections): string {
+  const ai = data.ai;
+  if (ai === null) return '';
+  const tasa = ai.sessions > 0 ? ai.engagedSessions / ai.sessions : null;
+  const max = Math.max(1, ...ai.assistants.map((a) => a.sessions));
+  const entrada = ai.landing.slice(0, 8);
+
+  return `${s.sec('Visitas desde asistentes de IA', `${esc(data.period.label)} contra ${esc(data.period.previousLabel)}`)}
+  <dl class="kpis">
+    ${kpi('Sesiones', int(ai.sessions), delta(ai.sessions, ai.previousSessions))}
+    ${kpi('Del total', pct(ai.share, 1), '<span class="d">de todas las sesiones</span>')}
+    ${kpi('Interacción', pct(tasa, 0), '<span class="d">sesiones con interacción</span>')}
+    ${kpi('Eventos clave', int(ai.keyEvents), '<span class="d">de esas visitas</span>')}
+  </dl>
+
+  <div class="two" style="margin-top:12px">
+    <div>
+      <table class="share">
+        <thead><tr><th>Asistente</th><th class="num">Sesiones</th><th style="width:28%"></th><th class="num">Cambio</th></tr></thead>
+        <tbody>${ai.assistants.map((a) => `<tr>
+          <td>${esc(a.key)}</td>
+          <td class="num">${int(a.sessions)} <span class="hint">${pct(a.share, 0)}</span></td>
+          <td>${barCell(a.sessions, max)}</td>
+          <td class="num">${a.previous === 0 ? '<span class="d">nuevo</span>' : a.previous === null ? '<span class="d">—</span>' : delta(a.sessions, a.previous)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div>
+      ${entrada.length === 0 ? '<p class="empty">Sin páginas de entrada registradas.</p>' : `<table>
+        <thead><tr><th>Llegan a</th><th class="num">Sesiones</th><th>Estado</th></tr></thead>
+        <tbody>${entrada.map((l) => `<tr>
+          <td class="path cut">${esc(l.path)}</td>
+          <td class="num">${int(l.sessions)}</td>
+          <td>${estado(l)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+  </div>
+  <p class="method" style="margin-top:10px">
+    Son visitas, no impresiones: alguien leyó la respuesta del asistente e hizo clic en el enlace al sitio. Ningún
+    asistente publica cuántas veces mostró un sitio. Solo se cuentan las visitas que llegan identificadas
+    (ChatGPT agrega utm_source=chatgpt.com; los demás mandan su dominio como origen). Las apps de escritorio y de
+    teléfono a menudo no lo mandan y esas visitas caen en «Directo», así que el número real es mayor.
+  </p>`;
+}
+
+/**
+ * Hoja propia para las visitas desde asistentes; vacía si no las hubo. `extra`
+ * es una función y no un texto para que sus secciones se numeren después de
+ * las de las visitas.
+ */
+export function aiSheet(data: AnalyticsReportData, s: Sections, extra: () => string = () => ''): string {
+  const visitas = aiVisitsBlock(data, s);
+  const mas = extra();
+  if (visitas === '' && mas === '') return '';
+  return `<section class="sheet">
+  ${brandHeader(data.consultant, 'Asistentes de IA', data.site.name)}
+  ${visitas}
+  ${mas}
+</section>`;
+}
+
 function methodBlock(data: AnalyticsReportData, s: Sections): string {
   return `${s.sec('Fuentes y método')}
   <p class="method">
@@ -250,6 +317,7 @@ export async function renderAnalyticsHtml(data: AnalyticsReportData): Promise<st
     summarySheet(data, s),
     searchSheet(data, s),
     trafficSheet(data, s),
+    aiSheet(data, s),
   ].filter((x) => x !== '').join('\n\n');
   return documentHtml(`${data.site.name} — Búsqueda y tráfico`, ANALYTICS_CSS, body);
 }

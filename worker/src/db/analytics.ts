@@ -283,6 +283,32 @@ export async function fetchGaDailyRange(siteId: string, start: string, end: stri
   }));
 }
 
+/** Visitas desde asistentes de IA de un rango, y el primer día que tiene la serie. */
+export async function fetchGaAiDailyRange(siteId: string, start: string, end: string): Promise<GaAiDailyRow[]> {
+  const { rows } = await db().query<{
+    d: string; sessions: number; engaged_sessions: number; key_events: number; by_assistant: Record<string, number>;
+  }>(
+    `SELECT to_char(date, 'YYYY-MM-DD') AS d, sessions, engaged_sessions, key_events, by_assistant
+       FROM ga_ai_daily WHERE site_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date`,
+    [siteId, start, end],
+  );
+  return rows.map((r) => ({
+    date: r.d,
+    sessions: r.sessions,
+    engagedSessions: r.engaged_sessions,
+    keyEvents: r.key_events,
+    byAssistant: r.by_assistant,
+  }));
+}
+
+export async function minStoredAiDate(siteId: string): Promise<string | null> {
+  const { rows } = await db().query<{ d: string | null }>(
+    `SELECT to_char(min(date), 'YYYY-MM-DD') AS d FROM ga_ai_daily WHERE site_id = $1`,
+    [siteId],
+  );
+  return rows[0]?.d ?? null;
+}
+
 /** Lo último que se supo de la conexión del sitio: para el informe integral y el webhook. */
 export interface LatestAnalyticsState {
   gscStatus: SourceStatus;

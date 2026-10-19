@@ -8,7 +8,7 @@
 
 import type { Consultant, Priority } from './model.js';
 import type { GscDailyRow, GscDimensionRow } from '../google/search-console.js';
-import type { GaDailyRow, GaTotals, GaLabeledRow, GaKeyEventRow } from '../google/ga4.js';
+import type { GaDailyRow, GaTotals, GaLabeledRow, GaKeyEventRow, GaAiDailyRow } from '../google/ga4.js';
 import { eachDay, type DateRange } from '../analytics/periods.js';
 import { int, pct, isoDate, monthName, ms, esc } from './format.js';
 
@@ -56,6 +56,16 @@ export interface ShareRow {
   keyEvents: number;
 }
 
+/** Un asistente de IA con sus sesiones en el periodo y en el anterior. */
+export interface AiAssistantRow {
+  key: string;
+  sessions: number;
+  /** Fracción de las sesiones que llegaron desde algún asistente. */
+  share: number;
+  /** null si la serie no cubre completo el periodo anterior. */
+  previous: number | null;
+}
+
 export interface AnalyticsReportData {
   consultant: Consultant;
   site: { name: string; url: string };
@@ -92,6 +102,20 @@ export interface AnalyticsReportData {
     keyEvents: GaKeyEventRow[];
     /** Eventos clave definidos en la propiedad, aunque no hayan ocurrido. */
     keyEventsDefined: string[];
+  };
+  /**
+   * Visitas que llegaron desde un asistente de IA. null —y la sección no se
+   * imprime— sin GA4, sin la serie sincronizada o sin visitas en el periodo.
+   */
+  ai: null | {
+    sessions: number;
+    previousSessions: number | null;
+    engagedSessions: number;
+    keyEvents: number;
+    /** Fracción de todas las sesiones de GA4 del periodo. */
+    share: number | null;
+    assistants: AiAssistantRow[];
+    landing: PageTrafficRow[];
   };
   priorities: Priority[];
 }
@@ -237,8 +261,66 @@ export interface BuildAnalyticsInput {
     keyEvents: GaKeyEventRow[];
     keyEventsDefined: string[];
   };
+  /** Visitas desde asistentes de IA. Solo cuenta si también hay GA4. */
+  ai?: null | {
+    daily: GaAiDailyRow[];
+    previousDaily: GaAiDailyRow[];
+    /** Primer día de la serie: decide si el periodo anterior se puede comparar. */
+    firstDate: string | null;
+    landing: GaLabeledRow[];
+  };
   health: Map<string, PageHealth>;
   dropThreshold: number;
+}
+
+function sumAssistants(rows: GaAiDailyRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) for (const [k, v] of Object.entries(r.byAssistant)) m.set(k, (m.get(k) ?? 0) + v);
+  return m;
+}
+
+/** El bloque de asistentes de IA, o null si no hay nada que contar. */
+export function buildAiBlock(
+  ai: BuildAnalyticsInput['ai'],
+  ga: AnalyticsReportData['ga'],
+  previous: DateRange,
+  health: Map<string, PageHealth>,
+): AnalyticsReportData['ai'] {
+  if (ai == null || ga === null) return null;
+  const sessions = ai.daily.reduce((a, r) => a + r.sessions, 0);
+  if (sessions === 0) return null;
+
+  // Sin la historia completa del periodo anterior no hay comparación: uno a
+  // medias haría parecer que las visitas se dispararon.
+  const comparable = ai.firstDate !== null && ai.firstDate <= previous.start;
+  const actual = sumAssistants(ai.daily);
+  const antes = sumAssistants(ai.previousDaily);
+
+  return {
+    sessions,
+    previousSessions: comparable ? ai.previousDaily.reduce((a, r) => a + r.sessions, 0) : null,
+    engagedSessions: ai.daily.reduce((a, r) => a + r.engagedSessions, 0),
+    keyEvents: Math.round(ai.daily.reduce((a, r) => a + r.keyEvents, 0) * 100) / 100,
+    share: ga.totals.sessions > 0 ? sessions / ga.totals.sessions : null,
+    assistants: [...actual.entries()]
+      .filter(([, v]) => v > 0)
+      .map(([key, v]) => ({ key, sessions: v, share: v / sessions, previous: comparable ? antes.get(key) ?? 0 : null }))
+      .sort((a, b) => b.sessions - a.sessions),
+    landing: ai.landing
+      .filter((l) => l.key !== '(not set)' && l.key !== '(sin dato)')
+      .map((l) => {
+        const path = pathOf(l.key);
+        return {
+          path,
+          clicks: null,
+          impressions: null,
+          sessions: l.sessions,
+          engagementRate: l.sessions > 0 ? l.engagedSessions / l.sessions : null,
+          keyEvents: l.keyEvents,
+          health: health.get(path) ?? null,
+        };
+      }),
+  };
 }
 
 function rangeLabel(r: DateRange, mode: 'month' | '28d'): string {
@@ -336,6 +418,7 @@ export function buildAnalyticsReport(input: BuildAnalyticsInput): AnalyticsRepor
     },
     gsc,
     ga,
+    ai: buildAiBlock(input.ai, ga, input.previous, input.health),
   };
   return { ...base, priorities: trafficPriorities({ ...base, priorities: [] }, input.dropThreshold) };
 }
@@ -468,6 +551,10 @@ export function analyticsVerdict(data: AnalyticsReportData): string {
     } else if (data.ga.totals.keyEvents > 0) {
       partes.push(`Se registraron ${int(data.ga.totals.keyEvents)} eventos clave.`);
     }
+  }
+
+  if (data.ai !== null) {
+    partes.push(`Los asistentes de IA (${data.ai.assistants.slice(0, 2).map((a) => esc(a.key)).join(', ')}) mandaron <b>${int(data.ai.sessions)} sesiones</b>${data.ai.share === null ? '' : `, el ${pct(data.ai.share, 1)} del total`}.`);
   }
 
   const rota = data.priorities.find((p) => p.severity === 'critical' && p.title.startsWith('Corregir'));

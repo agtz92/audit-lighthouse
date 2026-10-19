@@ -12,6 +12,7 @@ import { buildAnalyticsReport, type AnalyticsReportData } from '../report/analyt
 import { folio } from '../report/format.js';
 import {
   fetchBreakdowns, fetchGscDailyRange, fetchGaDailyRange, fetchLatestAnalyticsState, fetchLatestPageHealth,
+  fetchGaAiDailyRange, minStoredAiDate,
   type StoredBreakdown,
 } from '../db/analytics.js';
 import { addDays, periodRanges, reportPeriods, type DateRange, type PeriodKey } from './periods.js';
@@ -66,12 +67,15 @@ export async function loadAnalyticsReport(site: ResolvedSite, opts: LoadReportOp
   const hayGa = conGa && estado.gaLatestDate !== null;
   if (!hayGsc && !hayGa) return null;
 
-  const [gscCur, gscPrev, gaCur, gaPrev, health] = await Promise.all([
+  const [gscCur, gscPrev, gaCur, gaPrev, health, aiCur, aiPrev, aiFirst] = await Promise.all([
     hayGsc ? fetchGscDailyRange(site.id, rCur.start, rCur.end) : Promise.resolve([]),
     hayGsc ? fetchGscDailyRange(site.id, rPrev.start, rPrev.end) : Promise.resolve([]),
     hayGa ? fetchGaDailyRange(site.id, rCur.start, rCur.end) : Promise.resolve([]),
     hayGa ? fetchGaDailyRange(site.id, rPrev.start, rPrev.end) : Promise.resolve([]),
     fetchLatestPageHealth(site.id),
+    hayGa ? fetchGaAiDailyRange(site.id, rCur.start, rCur.end) : Promise.resolve([]),
+    hayGa ? fetchGaAiDailyRange(site.id, rPrev.start, rPrev.end) : Promise.resolve([]),
+    hayGa ? minStoredAiDate(site.id) : Promise.resolve(null),
   ]);
 
   return buildAnalyticsReport({
@@ -102,6 +106,13 @@ export async function loadAnalyticsReport(site: ResolvedSite, opts: LoadReportOp
       landing: rows<GaLabeledRow>(guardados, current, 'ga_landing'),
       keyEvents: rows<GaKeyEventRow>(guardados, current, 'ga_key_events'),
       keyEventsDefined: estado.keyEvents,
+    },
+    // Sin la serie todavía sincronizada no hay sección: el modelo la omite.
+    ai: !hayGa || aiFirst === null ? null : {
+      daily: aiCur,
+      previousDaily: aiPrev,
+      firstDate: aiFirst,
+      landing: rows<GaLabeledRow>(guardados, current, 'ga_ai_landing'),
     },
     health,
     dropThreshold: opts.dropThreshold,

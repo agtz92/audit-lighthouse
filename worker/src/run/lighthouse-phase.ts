@@ -101,7 +101,12 @@ async function writeIntegral(
       log.info('informe integral omitido: el sitio todavía no tiene tráfico sincronizado');
       return;
     }
-    const input = { desktop: porEstrategia.desktop ?? null, mobile: porEstrategia.mobile ?? null, traffic };
+    const input = {
+      desktop: porEstrategia.desktop ?? null,
+      mobile: porEstrategia.mobile ?? null,
+      traffic,
+      aiReadiness: result.aiReadiness,
+    };
     const meta = await writeReportPdf({
       paths,
       strategy: 'integral',

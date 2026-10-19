@@ -14,13 +14,17 @@ import { rateScore, rate, THRESHOLDS } from './model.js';
 import { type AnalyticsReportData, mergedPages, pageProblem, relChange } from './analytics-model.js';
 import { brandHeader, coverSheet, documentHtml, Sections } from './brand.js';
 import { LIGHTHOUSE_CSS, diagnosticSheet, infraSheet, colorClass } from './template.js';
-import { ANALYTICS_CSS, summarySheet, searchSheet, trafficSheet } from './analytics-template.js';
+import { ANALYTICS_CSS, summarySheet, searchSheet, trafficSheet, aiSheet } from './analytics-template.js';
+import { aiAccessBlock, aiAccessPriorities, assistantAccess } from './ai-access.js';
+import type { AiReadiness } from '../audit/ai-readiness.js';
 import { int, pct, ms, esc, longDate, time } from './format.js';
 
 export interface IntegralInput {
   desktop: ReportData | null;
   mobile: ReportData | null;
   traffic: AnalyticsReportData;
+  /** La revisión de acceso de los asistentes de IA de esta corrida; null si no se hizo. */
+  aiReadiness?: AiReadiness | null;
 }
 
 const INTEGRAL_CSS = `
@@ -47,12 +51,16 @@ export function integralFooterText(input: IntegralInput): string {
  * Prioridades de todo junto. Primero lo que pierde visitas hoy (páginas con
  * tráfico rotas, caídas de clics), luego lo que Lighthouse midió con impacto
  * —móvil antes que escritorio, porque es donde llega la mayoría—, y al final
- * las oportunidades de búsqueda.
+ * las oportunidades de búsqueda. Un asistente de IA que no puede entrar al
+ * sitio va con lo urgente: no hay nada que mejorar ahí mientras siga cerrado.
  */
 export function integralPriorities(input: IntegralInput, max = 5): Priority[] {
   const trafico = input.traffic.priorities;
   const urgentes = trafico.filter((p) => p.severity === 'critical');
   const resto = trafico.filter((p) => p.severity !== 'critical');
+  const ia = aiAccessPriorities(input.aiReadiness ?? null);
+  const iaUrgente = ia.filter((p) => p.severity === 'critical');
+  const iaResto = ia.filter((p) => p.severity !== 'critical');
   const lh = [
     ...(input.mobile?.priorities.slice(0, 2).map((p) => ({ ...p, impact: `móvil · ${p.impact}` })) ?? []),
     ...(input.desktop?.priorities.slice(0, 1).map((p) => ({ ...p, impact: `escritorio · ${p.impact}` })) ?? []),
@@ -60,7 +68,7 @@ export function integralPriorities(input: IntegralInput, max = 5): Priority[] {
 
   const out: Priority[] = [];
   const vistos = new Set<string>();
-  for (const p of [...urgentes, ...lh, ...resto]) {
+  for (const p of [...urgentes, ...iaUrgente, ...lh, ...resto, ...iaResto]) {
     // La misma recomendación de Lighthouse sale en las dos estrategias.
     if (vistos.has(p.title)) continue;
     vistos.add(p.title);
@@ -95,6 +103,14 @@ export function integralVerdict(input: IntegralInput): string {
   }
   if (t.ga !== null && t.ga.totals.keyEvents > 0) {
     partes.push(`Se registraron ${int(t.ga.totals.keyEvents)} eventos clave.`);
+  }
+
+  if (t.ai !== null) {
+    partes.push(`Los asistentes de IA mandaron ${int(t.ai.sessions)} visitas${t.ai.share === null ? '' : ` (${pct(t.ai.share, 1)} del total)`}.`);
+  }
+  const cerrados = input.aiReadiness == null ? [] : assistantAccess(input.aiReadiness).filter((a) => a.verdict !== 'ok');
+  if (cerrados.length > 0) {
+    partes.push(`${cerrados.map((a) => a.name).join(', ')} no ${cerrados.length === 1 ? 'puede' : 'pueden'} leer el sitio, así que no lo ${cerrados.length === 1 ? 'cita' : 'citan'}.`);
   }
 
   const rotas = mergedPages(t, 30).filter((p) => pageProblem(p) === 'down');
@@ -206,6 +222,7 @@ export async function renderIntegralHtml(input: IntegralInput): Promise<string> 
     t.gsc === null && t.ga === null ? '' : summarySheet(t, s, false, 'Tráfico'),
     searchSheet(t, s),
     t.ga === null ? '' : trafficSheet(t, s, false),
+    aiSheet(t, s, () => aiAccessBlock(input.aiReadiness ?? null, s)),
     infraSheet(d, s, false),
     methodSheet(input, s),
   ].filter((x) => x !== '').join('\n\n');
