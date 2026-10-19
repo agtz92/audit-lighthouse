@@ -10,13 +10,13 @@ const INICIAL: ActionResult | null = null;
  * Lee de la base —no pide datos a Google Ads—; lo que cuesta es el texto de
  * Claude, así que el análisis semanal no se repite si ya hay uno reciente.
  */
-export function AdsNow({ id }: { id: string }) {
+export function AdsNow({ id }: { id?: string }) {
   const [estado, accion, enviando] = useActionState(generarInformesAds, INICIAL);
   return (
     <form action={accion} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="id" value={id ?? ''} />
       <button className="ghost" type="submit" disabled={enviando}>
-        {enviando ? 'Pidiendo…' : 'Generar informes'}
+        {enviando ? 'Pidiendo…' : id === undefined ? 'Generar todos los informes' : 'Generar informes'}
       </button>
       {estado !== null && estado.message !== '' && (
         <span className={estado.ok ? 'msg ok' : 'msg bad'}>{estado.message}</span>

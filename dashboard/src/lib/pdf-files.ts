@@ -29,3 +29,12 @@ export async function trafficPdfs(siteIds: string[]): Promise<Map<string, { anal
   }));
   return new Map(pares);
 }
+
+/** Los dos informes de Google Ads de varios sitios, en paralelo. */
+export async function adsPdfs(siteIds: string[]): Promise<Map<string, { cliente: boolean; admin: boolean }>> {
+  const pares = await Promise.all(siteIds.map(async (id) => {
+    const [cliente, admin] = await Promise.all([pdfExists(id, 'ads-cliente'), pdfExists(id, 'ads-admin')]);
+    return [id, { cliente, admin }] as const;
+  }));
+  return new Map(pares);
+}

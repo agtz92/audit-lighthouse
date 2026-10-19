@@ -263,6 +263,7 @@ export async function generarInformesAds(_prev: ActionResult | null, form: FormD
   const id = String(form.get('id') ?? '');
   const r = await requestAdsReports(id === '' ? undefined : id);
   if (!r.ok) return { ok: false, message: r.message };
+  revalidatePath('/ads');
   if (id !== '') revalidatePath(`/sites/${id}/ads`);
   return {
     ok: true,

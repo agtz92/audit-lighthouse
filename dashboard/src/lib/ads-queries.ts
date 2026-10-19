@@ -165,3 +165,84 @@ export async function fetchReportNotesInfo(siteId: string): Promise<{ createdAt:
   `, [siteId]);
   return r === undefined ? null : { createdAt: r.created_at, model: r.model };
 }
+
+// ── Vista general: todas las cuentas ────────────────────────────────────────
+
+export interface AdsOverviewRow {
+  siteId: string;
+  state: AdsState | null;
+  latest: string | null;
+  totals: AdsTotals | null;
+  previous: AdsTotals | null;
+  /** Inversión por día del rango, para la tendencia. */
+  spark: number[];
+  weeklyAt: Date | null;
+  weeklyAlerts: number;
+}
+
+/**
+ * Una fila por sitio con datos o estado de Ads. Cada sitio se ancla en su
+ * propio último día sincronizado, como en Tráfico.
+ */
+export async function fetchAdsOverview(range: TrafficRange): Promise<AdsOverviewRow[]> {
+  const [estados, dias, notas] = await Promise.all([
+    query<{
+      site_id: string; ads_status: AdsState['status']; ads_error: string | null; ads_customer_id: string | null;
+      ads_currency: string | null; d: string | null; finished_at: Date | null;
+    }>(`
+      SELECT DISTINCT ON (site_id) site_id, ads_status, ads_error, ads_customer_id, ads_currency,
+             to_char(ads_latest_date, 'YYYY-MM-DD') AS d, finished_at
+        FROM analytics_site_runs
+       WHERE status <> 'running' AND ads_status <> 'off'
+       ORDER BY site_id, started_at DESC
+    `),
+    query<{ site_id: string; d: string; impressions: number; clicks: number; cost: number; conversions: number; conversions_value: number }>(`
+      SELECT site_id, to_char(date, 'YYYY-MM-DD') AS d, sum(impressions) AS impressions, sum(clicks) AS clicks,
+             sum(cost_micros) / 1000000.0 AS cost, sum(conversions) AS conversions, sum(conversions_value) AS conversions_value
+        FROM ads_daily
+       WHERE date >= current_date - ($1::int * 2 + 7)
+       GROUP BY site_id, date
+    `, [range]),
+    query<{ site_id: string; created_at: Date; alertas: number }>(`
+      SELECT DISTINCT ON (site_id) site_id, created_at, coalesce(jsonb_array_length(content->'alertas'), 0) AS alertas
+        FROM ads_notes WHERE kind = 'weekly'
+       ORDER BY site_id, created_at DESC
+    `),
+  ]);
+
+  const porSitio = new Map<string, typeof dias>();
+  for (const d of dias) porSitio.set(d.site_id, [...(porSitio.get(d.site_id) ?? []), d]);
+  const ids = new Set([...estados.map((e) => e.site_id), ...porSitio.keys()]);
+  const nota = new Map(notas.map((n) => [n.site_id, n]));
+
+  return [...ids].map((siteId) => {
+    const e = estados.find((x) => x.site_id === siteId);
+    const filas = porSitio.get(siteId) ?? [];
+    const latest = filas.map((f) => f.d).sort().at(-1) ?? null;
+    let totals: AdsTotals | null = null;
+    let previous: AdsTotals | null = null;
+    let spark: number[] = [];
+    if (latest !== null) {
+      const desde = addDays(latest, -(range - 1));
+      const desdePrev = addDays(desde, -range);
+      const sumar = (a: string, b: string): AdsTotals => filas.filter((f) => f.d >= a && f.d <= b).reduce<AdsTotals>((t, f) => ({
+        cost: t.cost + f.cost, clicks: t.clicks + f.clicks, impressions: t.impressions + f.impressions,
+        conversions: t.conversions + f.conversions, conversionsValue: t.conversionsValue + f.conversions_value,
+      }), { cost: 0, clicks: 0, impressions: 0, conversions: 0, conversionsValue: 0 });
+      totals = sumar(desde, latest);
+      previous = filas.some((f) => f.d < desde) ? sumar(desdePrev, addDays(desde, -1)) : null;
+      const porDia = new Map(filas.map((f) => [f.d, f.cost]));
+      spark = pares(porDia, latest, range, null).map((p) => p.current ?? 0);
+    }
+    return {
+      siteId,
+      state: e === undefined ? null : {
+        status: e.ads_status, error: e.ads_error, customerId: e.ads_customer_id,
+        currency: e.ads_currency ?? 'MXN', latestDate: e.d, finishedAt: e.finished_at,
+      },
+      latest, totals, previous, spark,
+      weeklyAt: nota.get(siteId)?.created_at ?? null,
+      weeklyAlerts: nota.get(siteId)?.alertas ?? 0,
+    };
+  });
+}
