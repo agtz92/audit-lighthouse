@@ -323,7 +323,7 @@ export function buildAiBlock(
   };
 }
 
-function rangeLabel(r: DateRange, mode: 'month' | '28d'): string {
+export function rangeLabel(r: DateRange, mode: 'month' | '28d'): string {
   if (mode === 'month') return monthName(r.start);
   return `${isoDate(r.start, false)} – ${isoDate(r.end)}`;
 }

@@ -458,3 +458,41 @@ export function pathKey(urlOrPath: string): string {
   path = path.replace(/\/+$/, '');
   return path === '' ? '/' : path;
 }
+
+// ── Lectura para los informes de Ads ────────────────────────────────────────
+
+/** La cuenta de Ads por día: la suma de sus campañas, con el costo ya en la moneda de la cuenta. */
+export async function fetchAdsDayTotals(
+  siteId: string,
+  start: string,
+  end: string,
+): Promise<Array<{ date: string; impressions: number; clicks: number; cost: number; conversions: number; conversionsValue: number }>> {
+  const { rows } = await db().query<{ d: string; i: string; c: string; cost: string; conv: string; v: string }>(
+    `SELECT to_char(date, 'YYYY-MM-DD') AS d, sum(impressions) AS i, sum(clicks) AS c,
+            sum(cost_micros) / 1000000.0 AS cost, sum(conversions) AS conv, sum(conversions_value) AS v
+       FROM ads_daily WHERE site_id = $1 AND date BETWEEN $2 AND $3
+      GROUP BY date ORDER BY date`,
+    [siteId, start, end],
+  );
+  return rows.map((r) => ({
+    date: r.d,
+    impressions: Number(r.i),
+    clicks: Number(r.c),
+    cost: Math.round(Number(r.cost) * 100) / 100,
+    conversions: Math.round(Number(r.conv) * 100) / 100,
+    conversionsValue: Math.round(Number(r.v) * 100) / 100,
+  }));
+}
+
+/** Lo último que se supo de la cuenta de Ads del sitio. null si nunca se sincronizó bien. */
+export async function fetchLatestAdsState(siteId: string): Promise<{ customerId: string; currency: string; latestDate: string } | null> {
+  const { rows } = await db().query<{ ads_customer_id: string; ads_currency: string | null; d: string }>(
+    `SELECT ads_customer_id, ads_currency, to_char(ads_latest_date, 'YYYY-MM-DD') AS d
+       FROM analytics_site_runs
+      WHERE site_id = $1 AND ads_status = 'ok' AND ads_latest_date IS NOT NULL
+      ORDER BY started_at DESC LIMIT 1`,
+    [siteId],
+  );
+  const r = rows[0];
+  return r === undefined ? null : { customerId: r.ads_customer_id, currency: r.ads_currency ?? 'MXN', latestDate: r.d };
+}

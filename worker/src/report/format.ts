@@ -90,3 +90,21 @@ export function esc(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/**
+ * Importe en la moneda de la cuenta de Ads: $35,248.76. Sin centavos a partir
+ * de cien mil, donde ya no dicen nada en una tabla.
+ */
+export function money(value: number | null, currency = 'MXN'): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  const grande = Math.abs(value) >= 100_000;
+  try {
+    return value.toLocaleString('es-MX', {
+      style: 'currency', currency, currencyDisplay: 'narrowSymbol',
+      minimumFractionDigits: grande ? 0 : 2, maximumFractionDigits: grande ? 0 : 2,
+    });
+  } catch {
+    // Un código de moneda que Intl no conoce: el número y el código, sin símbolo.
+    return `${value.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
