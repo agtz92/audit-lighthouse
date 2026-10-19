@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { classifyGoogleError, GoogleClient } from './client.js';
 import {
   field, metricsOf, parseDaily, parseCampaigns, parseKeywords, parseSearchTerms, mergeAds, parseAdInventory,
-  labeledBy, parseSchedule, gaql,
+  labeledBy, parseSchedule, gaql, parseConversionActions, parseConversionActionInventory, parsePmaxAssets,
+  parseAssetGroups, parseAudiences,
 } from './ads.js';
 
 /** El cuerpo real que devolvió Google con un token de prueba contra una cuenta de verdad. */
@@ -168,5 +169,39 @@ describe('lectura de filas', () => {
     ]);
     assert.deepEqual(s.byDay.map((d) => d.key), ['MONDAY', 'SUNDAY']);
     assert.deepEqual(s.byHour.map((h) => h.key), ['9', '13']);
+  });
+});
+
+describe('inventario y PMax', () => {
+  test('las conversiones por acción llevan su tipo y si cuentan en «Conversiones»', () => {
+    const inv = parseConversionActionInventory([
+      { conversionAction: { name: 'Enviar Whatsapp', type: 'WEBPAGE', category: 'CONTACT', status: 'ENABLED', includeInConversionsMetric: true } },
+    ]);
+    const [wa, vieja] = parseConversionActions([
+      { campaign: { id: '1' }, segments: { conversionActionName: 'Enviar Whatsapp', conversionActionCategory: 'CONTACT' }, metrics: { conversions: 129, allConversions: 129 } },
+      { campaign: { id: '1' }, segments: { conversionActionName: 'Borrada', conversionActionCategory: 'LEAD' }, metrics: { conversions: 0, allConversions: 2 } },
+    ], inv);
+    assert.equal(wa?.type, 'WEBPAGE');
+    assert.equal(wa?.primary, true);
+    assert.equal(vieja?.type, null);
+  });
+
+  test('cada asset group trae sus assets', () => {
+    const assets = parsePmaxAssets([
+      { assetGroup: { id: '7' }, asset: { type: 'TEXT', textAsset: { text: 'Cortinas a la medida' } }, assetGroupAsset: { fieldType: 'HEADLINE', primaryStatus: 'ELIGIBLE' } },
+      { assetGroup: { id: '8' }, asset: { type: 'IMAGE' }, assetGroupAsset: { fieldType: 'MARKETING_IMAGE', primaryStatus: 'NOT_ELIGIBLE' } },
+    ]);
+    const [g] = parseAssetGroups([{ campaign: { id: '1' }, assetGroup: { id: '7', name: 'Todo', status: 'ENABLED', adStrength: 'GOOD' }, ...m(10, 1, 1_000_000, 0) }], assets);
+    assert.equal(g?.assets.length, 1);
+    assert.equal(g?.assets[0]?.text, 'Cortinas a la medida');
+    assert.equal(assets[1]?.text, null);
+  });
+
+  test('audiencias de campaña y de grupo no se mezclan', () => {
+    const a = parseAudiences(
+      [{ campaign: { id: '1' }, campaignCriterion: { displayName: 'Compradores', type: 'USER_INTEREST' }, ...m(5, 1, 2_000_000, 1) }],
+      [{ campaign: { id: '1' }, adGroupCriterion: { displayName: 'Compradores', type: 'USER_INTEREST' }, ...m(5, 1, 1_000_000, 0) }],
+    );
+    assert.deepEqual(a.map((x) => [x.level, x.cost]), [['campaign', 2], ['ad_group', 1]]);
   });
 });

@@ -253,7 +253,7 @@ export type BreakdownKind =
   | 'ga_totals' | 'ga_channels' | 'ga_devices' | 'ga_landing' | 'ga_key_events'
   | 'ga_ai_assistants' | 'ga_ai_landing'
   | 'ads_totals' | 'ads_campaigns' | 'ads_conversion_actions' | 'ads_ad_groups' | 'ads_keywords'
-  | 'ads_search_terms' | 'ads_ads' | 'ads_devices' | 'ads_landing' | 'ads_geo' | 'ads_gender' | 'ads_age'
+  | 'ads_search_terms' | 'ads_ads' | 'ads_asset_groups' | 'ads_pmax_terms' | 'ads_audiences' | 'ads_devices' | 'ads_landing' | 'ads_geo' | 'ads_gender' | 'ads_age'
   | 'ads_schedule';
 
 export async function saveBreakdown(

@@ -6,8 +6,9 @@
  * Una consulta cuenta como una operación contra el límite diario del token.
  *
  * Por sitio y sincronización: una consulta de la cuenta, una de la serie
- * diaria, una del inventario de anuncios y doce por cada uno de los cuatro
- * periodos. Unas 55 en total, muy por debajo de las 2 880 de acceso Explorer.
+ * diaria, tres del inventario (anuncios, acciones de conversión y assets de
+ * PMax) y catorce por cada uno de los cuatro periodos, más una por campaña
+ * PMax. Unas 65 en total, muy por debajo de las 2 880 de acceso Explorer.
  *
  * Los nombres de campo se escriben en snake_case en la consulta y llegan en
  * camelCase en el JSON (metrics.cost_micros → metrics.costMicros). Los int64
@@ -185,12 +186,13 @@ export async function fetchAdsDaily(client: GoogleClient, customerId: string, st
        FROM campaign WHERE ${during(start, end)}`));
 }
 
-// ── Inventario de anuncios ──────────────────────────────────────────────────
+// ── Inventario ──────────────────────────────────────────────────────────────
 
 /**
- * Los anuncios con su estado actual, sin fechas. Va aparte de las métricas
- * porque una consulta con fechas solo devuelve lo que tuvo impresiones, y un
- * anuncio rechazado no tiene: justo el que más importa ver.
+ * Lo que la cuenta tiene, con su estado actual y sin fechas: anuncios,
+ * acciones de conversión y assets de PMax. Va aparte de las métricas porque una
+ * consulta con fechas solo devuelve lo que tuvo impresiones, y un anuncio
+ * rechazado no tiene: justo el que más importa ver.
  */
 export interface AdsAdInfo {
   adId: string;
@@ -202,12 +204,15 @@ export interface AdsAdInfo {
   approval: string;
   strength: string;
   headlines: string[];
+  descriptions: string[];
   finalUrl: string | null;
 }
 
+const textos = (v: unknown): string[] =>
+  Array.isArray(v) ? v.map((h) => text(field(h as AdsRow, 'text'))).filter((t) => t !== '') : [];
+
 export function parseAdInventory(rows: AdsRow[]): AdsAdInfo[] {
   return rows.map((r) => {
-    const headlines = field(r, 'adGroupAd.ad.responsiveSearchAd.headlines');
     const urls = field(r, 'adGroupAd.ad.finalUrls');
     return {
       adId: text(field(r, 'adGroupAd.ad.id')),
@@ -218,19 +223,87 @@ export function parseAdInventory(rows: AdsRow[]): AdsAdInfo[] {
       status: text(field(r, 'adGroupAd.status'), 'UNKNOWN'),
       approval: text(field(r, 'adGroupAd.policySummary.approvalStatus'), 'UNKNOWN'),
       strength: text(field(r, 'adGroupAd.adStrength'), 'UNSPECIFIED'),
-      headlines: Array.isArray(headlines) ? headlines.map((h) => text(field(h as AdsRow, 'text'))).filter((t) => t !== '') : [],
+      headlines: textos(field(r, 'adGroupAd.ad.responsiveSearchAd.headlines')),
+      descriptions: textos(field(r, 'adGroupAd.ad.responsiveSearchAd.descriptions')),
       finalUrl: Array.isArray(urls) && typeof urls[0] === 'string' ? urls[0] : null,
     };
   }).filter((a) => a.adId !== '');
 }
 
-export async function fetchAdInventory(client: GoogleClient, customerId: string): Promise<AdsAdInfo[]> {
-  return parseAdInventory(await gaql(client, customerId,
-    `SELECT campaign.id, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.type, ad_group_ad.status,
-            ad_group_ad.policy_summary.approval_status, ad_group_ad.ad_strength,
-            ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.final_urls
-       FROM ad_group_ad
-      WHERE ad_group_ad.status != 'REMOVED' AND campaign.status != 'REMOVED' AND ad_group.status != 'REMOVED'`));
+export interface AdsConversionActionInfo {
+  name: string;
+  type: string;
+  category: string;
+  status: string;
+  /** Si cuenta en la columna «Conversiones», que es la que optimiza la puja. */
+  primary: boolean;
+}
+
+export function parseConversionActionInventory(rows: AdsRow[]): AdsConversionActionInfo[] {
+  return rows.map((r) => ({
+    name: text(field(r, 'conversionAction.name')),
+    type: text(field(r, 'conversionAction.type'), 'UNKNOWN'),
+    category: text(field(r, 'conversionAction.category'), 'UNKNOWN'),
+    status: text(field(r, 'conversionAction.status'), 'UNKNOWN'),
+    primary: field(r, 'conversionAction.includeInConversionsMetric') === true,
+  })).filter((c) => c.name !== '');
+}
+
+/** Un asset de un asset group de PMax: el texto si es texto, el tipo si no. */
+export interface AdsPmaxAsset {
+  assetGroupId: string;
+  type: string;
+  fieldType: string;
+  text: string | null;
+  /** ELIGIBLE, LIMITED, NOT_ELIGIBLE, PAUSED... */
+  status: string;
+  approval: string;
+}
+
+export function parsePmaxAssets(rows: AdsRow[]): AdsPmaxAsset[] {
+  return rows.map((r) => {
+    const t = text(field(r, 'asset.textAsset.text'));
+    return {
+      assetGroupId: text(field(r, 'assetGroup.id')),
+      type: text(field(r, 'asset.type'), 'UNKNOWN'),
+      fieldType: text(field(r, 'assetGroupAsset.fieldType'), 'UNKNOWN'),
+      text: t === '' ? null : t,
+      status: text(field(r, 'assetGroupAsset.primaryStatus'), 'UNKNOWN'),
+      approval: text(field(r, 'assetGroupAsset.policySummary.approvalStatus'), 'UNKNOWN'),
+    };
+  }).filter((a) => a.assetGroupId !== '');
+}
+
+export interface AdsInventory {
+  ads: AdsAdInfo[];
+  conversionActions: AdsConversionActionInfo[];
+  pmaxAssets: AdsPmaxAsset[];
+}
+
+export async function fetchAdsInventory(client: GoogleClient, customerId: string): Promise<AdsInventory> {
+  const [ads, conversiones, assets] = await Promise.all([
+    gaql(client, customerId,
+      `SELECT campaign.id, ad_group.id, ad_group.name, ad_group_ad.ad.id, ad_group_ad.ad.type, ad_group_ad.status,
+              ad_group_ad.policy_summary.approval_status, ad_group_ad.ad_strength,
+              ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions,
+              ad_group_ad.ad.final_urls
+         FROM ad_group_ad
+        WHERE ad_group_ad.status != 'REMOVED' AND campaign.status != 'REMOVED' AND ad_group.status != 'REMOVED'`),
+    gaql(client, customerId,
+      `SELECT conversion_action.name, conversion_action.type, conversion_action.category, conversion_action.status,
+              conversion_action.include_in_conversions_metric
+         FROM conversion_action WHERE conversion_action.status != 'REMOVED'`),
+    gaql(client, customerId,
+      `SELECT asset_group.id, asset.type, asset.text_asset.text, asset_group_asset.field_type,
+              asset_group_asset.primary_status, asset_group_asset.policy_summary.approval_status
+         FROM asset_group_asset
+        WHERE asset_group_asset.status != 'REMOVED' AND asset_group.status != 'REMOVED' AND campaign.status != 'REMOVED'`),
+  ]);
+  return {
+    ads: parseAdInventory(ads),
+    conversionActions: parseConversionActionInventory(conversiones),
+    pmaxAssets: parsePmaxAssets(assets),
+  };
 }
 
 // ── Desgloses de un periodo ─────────────────────────────────────────────────
@@ -254,6 +327,10 @@ export interface AdsConversionActionRow {
   campaignId: string;
   name: string;
   category: string;
+  /** WEBPAGE, PHONE_CALL_LEAD... null si la acción ya no existe en la cuenta. */
+  type: string | null;
+  /** Si cuenta en «Conversiones». null si la acción ya no existe. */
+  primary: boolean | null;
   conversions: number;
   allConversions: number;
   conversionsValue: number;
@@ -291,6 +368,33 @@ export interface AdsSearchTermRow extends AdsMetrics {
 
 export type AdsAdRow = AdsAdInfo & AdsMetrics;
 
+export interface AdsAssetGroupRow extends AdsMetrics {
+  id: string;
+  name: string;
+  campaignId: string;
+  status: string;
+  strength: string;
+  assets: AdsPmaxAsset[];
+}
+
+/** Categorías de búsqueda de PMax: Google no da los términos sueltos, solo grupos. */
+export interface AdsPmaxTermRow {
+  campaignId: string;
+  category: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  conversionsValue: number;
+}
+
+export interface AdsAudienceRow extends AdsMetrics {
+  name: string;
+  /** USER_LIST, USER_INTEREST, CUSTOM_AUDIENCE... */
+  type: string;
+  level: 'campaign' | 'ad_group';
+  campaignId: string;
+}
+
 export interface AdsLabeledRow extends AdsMetrics {
   key: string;
 }
@@ -308,6 +412,9 @@ export interface AdsPeriodReports {
   keywords: AdsKeywordRow[];
   searchTerms: AdsSearchTermRow[];
   ads: AdsAdRow[];
+  assetGroups: AdsAssetGroupRow[];
+  pmaxTerms: AdsPmaxTermRow[];
+  audiences: AdsAudienceRow[];
   devices: AdsLabeledRow[];
   landing: AdsLabeledRow[];
   geo: AdsLabeledRow[];
@@ -317,7 +424,7 @@ export interface AdsPeriodReports {
 }
 
 /** Cuántas filas se guardan de las listas largas. */
-const TOP = { keywords: 300, searchTerms: 200, landing: 100, geo: 50 };
+const TOP = { keywords: 300, searchTerms: 200, landing: 100, geo: 50, audiences: 50 };
 
 export function parseCampaigns(rows: AdsRow[]): AdsCampaignRow[] {
   return rows.map((r) => {
@@ -338,15 +445,22 @@ export function parseCampaigns(rows: AdsRow[]): AdsCampaignRow[] {
   }).sort(porCosto);
 }
 
-export function parseConversionActions(rows: AdsRow[]): AdsConversionActionRow[] {
-  return rows.map((r) => ({
+export function parseConversionActions(rows: AdsRow[], inventory: AdsConversionActionInfo[] = []): AdsConversionActionRow[] {
+  const porNombre = new Map(inventory.map((c) => [c.name, c]));
+  return rows.map((r) => {
+    const name = text(field(r, 'segments.conversionActionName'), '(sin nombre)');
+    const info = porNombre.get(name);
+    return {
     campaignId: text(field(r, 'campaign.id')),
-    name: text(field(r, 'segments.conversionActionName'), '(sin nombre)'),
+    name,
     category: text(field(r, 'segments.conversionActionCategory'), 'UNKNOWN'),
+    type: info?.type ?? null,
+    primary: info?.primary ?? null,
     conversions: round2(num(field(r, 'metrics.conversions'))),
     allConversions: round2(num(field(r, 'metrics.allConversions'))),
     conversionsValue: round2(num(field(r, 'metrics.conversionsValue'))),
-  })).sort((a, b) => b.allConversions - a.allConversions);
+    };
+  }).sort((a, b) => b.allConversions - a.allConversions);
 }
 
 export function parseAdGroups(rows: AdsRow[]): AdsAdGroupRow[] {
@@ -415,6 +529,48 @@ export function mergeAds(inventory: AdsAdInfo[], metricRows: AdsRow[]): AdsAdRow
   return inventory.map((a) => ({ ...a, ...(porId.get(a.adId) ?? ZERO_METRICS) })).sort(porCosto);
 }
 
+export function parseAssetGroups(rows: AdsRow[], assets: AdsPmaxAsset[]): AdsAssetGroupRow[] {
+  return rows.map((r) => {
+    const id = text(field(r, 'assetGroup.id'));
+    return {
+      id,
+      name: text(field(r, 'assetGroup.name'), '(sin nombre)'),
+      campaignId: text(field(r, 'campaign.id')),
+      status: text(field(r, 'assetGroup.status'), 'UNKNOWN'),
+      strength: text(field(r, 'assetGroup.adStrength'), 'UNSPECIFIED'),
+      ...metricsOf(r),
+      assets: assets.filter((a) => a.assetGroupId === id),
+    };
+  }).sort(porCosto);
+}
+
+export function parsePmaxTerms(campaignId: string, rows: AdsRow[]): AdsPmaxTermRow[] {
+  return rows.map((r) => ({
+    campaignId,
+    category: text(field(r, 'campaignSearchTermInsight.categoryLabel')) || '(sin categoría)',
+    impressions: num(field(r, 'metrics.impressions')),
+    clicks: num(field(r, 'metrics.clicks')),
+    conversions: round2(num(field(r, 'metrics.conversions'))),
+    conversionsValue: round2(num(field(r, 'metrics.conversionsValue'))),
+  }));
+}
+
+/** Audiencias de campaña y de grupo, sumadas por nombre dentro de cada nivel y campaña. */
+export function parseAudiences(campaignRows: AdsRow[], adGroupRows: AdsRow[]): AdsAudienceRow[] {
+  const fila = (r: AdsRow, level: AdsAudienceRow['level'], pre: string): AdsAudienceRow => ({
+    name: text(field(r, `${pre}.displayName`)) || '(sin nombre)',
+    type: text(field(r, `${pre}.type`), 'UNKNOWN'),
+    level,
+    campaignId: text(field(r, 'campaign.id')),
+    ...metricsOf(r),
+  });
+  const todas = [
+    ...campaignRows.map((r) => fila(r, 'campaign', 'campaignCriterion')),
+    ...adGroupRows.map((r) => fila(r, 'ad_group', 'adGroupCriterion')),
+  ];
+  return sumBy(todas, (a) => `${a.level}\u0000${a.campaignId}\u0000${a.name}`).sort(porCosto).slice(0, TOP.audiences);
+}
+
 /** Suma por una etiqueta: dispositivo, página, región, género, edad, día u hora. */
 export function labeledBy(rows: AdsRow[], keyOf: (r: AdsRow) => string): AdsLabeledRow[] {
   return sumBy(rows.map((r) => ({ key: keyOf(r) || '(sin dato)', ...metricsOf(r) })), (r) => r.key).sort(porCosto);
@@ -454,13 +610,16 @@ export async function fetchAdsPeriod(
   customerId: string,
   start: string,
   end: string,
-  inventory: AdsAdInfo[],
+  inventory: AdsInventory,
   geoCache: Map<string, string>,
 ): Promise<AdsPeriodReports> {
   const d = during(start, end);
   const q = (query: string): Promise<AdsRow[]> => gaql(client, customerId, query);
 
-  const [campaigns, conversions, adGroups, keywords, terms, ads, devices, landing, geo, gender, age, schedule] = await Promise.all([
+  const [
+    campaigns, conversions, adGroups, keywords, terms, ads, devices, landing, geo, gender, age, schedule,
+    assetGroups, audCampaign, audAdGroup,
+  ] = await Promise.all([
     q(`SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.bidding_strategy_type,
               campaign_budget.amount_micros, ${METRICS}, metrics.all_conversions, metrics.search_impression_share,
               metrics.search_rank_lost_impression_share, metrics.search_budget_lost_impression_share
@@ -488,20 +647,39 @@ export async function fetchAdsPeriod(
     q(`SELECT ad_group_criterion.gender.type, ${METRICS} FROM gender_view WHERE ${d}`),
     q(`SELECT ad_group_criterion.age_range.type, ${METRICS} FROM age_range_view WHERE ${d}`),
     q(`SELECT segments.day_of_week, segments.hour, ${METRICS} FROM campaign WHERE ${d}`),
+    q(`SELECT campaign.id, asset_group.id, asset_group.name, asset_group.status, asset_group.ad_strength, ${METRICS}
+         FROM asset_group WHERE ${d}`),
+    q(`SELECT campaign.id, campaign_criterion.display_name, campaign_criterion.type, ${METRICS}
+         FROM campaign_audience_view WHERE ${d}`),
+    q(`SELECT campaign.id, ad_group_criterion.display_name, ad_group_criterion.type, ${METRICS}
+         FROM ad_group_audience_view WHERE ${d}`),
   ]);
+
+  // Las categorías de búsqueda de PMax se piden campaña por campaña: la vista
+  // exige filtrar por una sola.
+  const campanas = parseCampaigns(campaigns);
+  const pmax = campanas.filter((c) => c.channel === 'PERFORMANCE_MAX');
+  const pmaxTerms = (await Promise.all(pmax.map(async (c) => parsePmaxTerms(c.id, await q(
+    `SELECT campaign_search_term_insight.category_label, metrics.impressions, metrics.clicks,
+            metrics.conversions, metrics.conversions_value
+       FROM campaign_search_term_insight
+      WHERE ${d} AND campaign_search_term_insight.campaign_id = '${c.id}'
+      ORDER BY metrics.impressions DESC LIMIT 50`))))).flat();
 
   const regiones = [...new Set(geo.map((r) => text(field(r, 'segments.geoTargetRegion'))).filter((r) => r !== ''))];
   await geoNames(client, customerId, regiones, geoCache);
 
-  const campanas = parseCampaigns(campaigns);
   return {
     totals: campanas.reduce<AdsMetrics>((acc, c) => addMetrics(acc, metricsOnly(c)), ZERO_METRICS),
     campaigns: campanas,
-    conversionActions: parseConversionActions(conversions),
+    conversionActions: parseConversionActions(conversions, inventory.conversionActions),
     adGroups: parseAdGroups(adGroups),
     keywords: parseKeywords(keywords),
     searchTerms: parseSearchTerms(terms),
-    ads: mergeAds(inventory, ads),
+    ads: mergeAds(inventory.ads, ads),
+    assetGroups: parseAssetGroups(assetGroups, inventory.pmaxAssets),
+    pmaxTerms,
+    audiences: parseAudiences(audCampaign, audAdGroup),
     devices: labeledBy(devices, (r) => text(field(r, 'segments.device'))),
     landing: labeledBy(landing, (r) => text(field(r, 'landingPageView.unexpandedFinalUrl'))).slice(0, TOP.landing),
     geo: labeledBy(geo, (r) => {

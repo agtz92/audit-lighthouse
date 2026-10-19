@@ -29,7 +29,7 @@ import {
 } from '../db/analytics.js';
 import { fetchGscDaily, fetchGscTop } from '../google/search-console.js';
 import { fetchGaDaily, fetchGaPeriod, fetchGaAiDaily, fetchGaAiPeriod, fetchKeyEventNames, type GaTotals } from '../google/ga4.js';
-import { fetchAdsAccount, fetchAdsDaily, fetchAdInventory, fetchAdsPeriod } from '../google/ads.js';
+import { fetchAdsAccount, fetchAdsDaily, fetchAdsInventory, fetchAdsPeriod } from '../google/ads.js';
 import { GoogleApiError, type GoogleClient } from '../google/client.js';
 import { googleClient, googleAdsClient } from './google.js';
 import { addDays, isoToday, periodRanges, syncWindow, PERIOD_KEYS } from './periods.js';
@@ -328,7 +328,7 @@ async function syncAds(
 
   const ranges = periodRanges(today, ayer);
   try {
-    const inventario = await fetchAdInventory(adsClient, customerId);
+    const inventario = await fetchAdsInventory(adsClient, customerId);
     const regiones = new Map<string, string>();
     for (const p of PERIOD_KEYS) {
       const r = await fetchAdsPeriod(adsClient, customerId, ranges[p].start, ranges[p].end, inventario, regiones);
@@ -341,6 +341,9 @@ async function syncAds(
       await guardar('ads_keywords', r.keywords);
       await guardar('ads_search_terms', r.searchTerms);
       await guardar('ads_ads', r.ads);
+      await guardar('ads_asset_groups', r.assetGroups);
+      await guardar('ads_pmax_terms', r.pmaxTerms);
+      await guardar('ads_audiences', r.audiences);
       await guardar('ads_devices', r.devices);
       await guardar('ads_landing', r.landing);
       await guardar('ads_geo', r.geo);
@@ -348,7 +351,7 @@ async function syncAds(
       await guardar('ads_age', r.age);
       await guardar('ads_schedule', r.schedule);
     }
-    log.info('google ads: desgloses guardados', { anuncios: inventario.length });
+    log.info('google ads: desgloses guardados', { anuncios: inventario.ads.length, assets_pmax: inventario.pmaxAssets.length });
   } catch (err) {
     fallo(ads, 'google ads (desgloses)', err);
   }
