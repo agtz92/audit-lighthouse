@@ -332,18 +332,26 @@ export async function setSitePages(input: PagesInput): Promise<void> {
 
 /**
  * Guarda la conexión con Search Console y GA4. Una fuente vacía se borra del
- * YAML; si las dos quedan vacías se borra el bloque `google` completo, que es
- * como se lee «este sitio no está conectado».
+ * YAML; si no queda ninguna se borra el bloque `google` completo, que es como
+ * se lee «este sitio no está conectado».
+ *
+ * La cuenta de Google Ads (adsCustomerId) todavía no se edita desde aquí, pero
+ * vive en el mismo bloque: se conserva tal cual para que guardar GSC o GA4 no
+ * la borre.
  */
 export async function setSiteGoogle(input: GoogleInput): Promise<void> {
   const doc = await loadDocument();
   const seq = sitesSeq(doc);
   const map = nodoDe(seq, input.id);
+  const ads = map.getIn(['google', 'adsCustomerId']);
 
   const bloque: Record<string, string> = {};
   if (input.searchConsole !== undefined) bloque.searchConsole = input.searchConsole;
   // Como texto: el YAML lo escribe entre comillas y nadie lo confunde con una cantidad.
   if (input.ga4Property !== undefined) bloque.ga4Property = input.ga4Property;
+  if ((typeof ads === 'string' || typeof ads === 'number') && String(ads).trim() !== '') {
+    bloque.adsCustomerId = String(ads).trim();
+  }
 
   if (Object.keys(bloque).length === 0) map.delete('google');
   else setOrdenado(doc, map, 'google', bloque);

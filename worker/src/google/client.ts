@@ -38,8 +38,57 @@ interface GoogleErrorBody {
     code?: number;
     message?: string;
     status?: string;
-    details?: Array<{ reason?: string; '@type'?: string }>;
+    details?: Array<{
+      reason?: string;
+      '@type'?: string;
+      // Google Ads manda aquí su GoogleAdsFailure: el código preciso de cada error.
+      errors?: Array<{ errorCode?: Record<string, string>; message?: string }>;
+    }>;
   };
+}
+
+/**
+ * Los errores de Google Ads traen un código propio por debajo del 403 o el 400
+ * genérico: `authorizationError: CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION`.
+ * Es lo único que distingue «falta aprobar el token» de «la cuenta no está
+ * vinculada al MCC», que se arreglan en lugares distintos.
+ */
+function classifyAdsFailure(status: number, body: GoogleErrorBody, api: string): GoogleApiError | null {
+  const errores = (body.error?.details ?? []).flatMap((d) => d.errors ?? []);
+  if (errores.length === 0) return null;
+  const codigos = errores.flatMap((e) => Object.entries(e.errorCode ?? {}).map(([tipo, valor]) => `${tipo}.${valor}`));
+  const msg = errores.map((e) => e.message ?? '').filter((m) => m !== '').join(' · ') || (body.error?.message ?? `HTTP ${status}`);
+  const raw = `${codigos.join(', ')}: ${msg}`;
+  const hay = (re: RegExp): boolean => codigos.some((c) => re.test(c));
+
+  if (hay(/CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION|DEVELOPER_TOKEN_NOT_APPROVED/)) {
+    return new GoogleApiError(
+      'El developer token de Google Ads solo está aprobado para cuentas de prueba. Pide acceso Explorer o Basic en el Centro de API del MCC.',
+      'permission', status, raw,
+    );
+  }
+  if (hay(/DEVELOPER_TOKEN/)) {
+    return new GoogleApiError('Google Ads rechazó el developer token. Revisa GOOGLE_ADS_DEVELOPER_TOKEN en .env.', 'auth', status, raw);
+  }
+  if (hay(/USER_PERMISSION_DENIED/)) {
+    return new GoogleApiError(
+      'La cuenta de servicio no tiene acceso a esta cuenta de Google Ads. Revisa que esté vinculada al MCC de GOOGLE_ADS_LOGIN_CUSTOMER_ID y que la cuenta de servicio sea usuaria del MCC.',
+      'permission', status, raw,
+    );
+  }
+  if (hay(/CUSTOMER_NOT_ENABLED|CUSTOMER_NOT_FOUND|INVALID_CUSTOMER_ID/)) {
+    return new GoogleApiError('La cuenta de Google Ads no existe, está cancelada o no terminó de configurarse. Revisa adsCustomerId.', 'not_found', status, raw);
+  }
+  if (hay(/^authenticationError\./)) {
+    return new GoogleApiError('Google Ads no aceptó las credenciales de la cuenta de servicio.', 'auth', status, raw);
+  }
+  if (hay(/^quotaError\./)) {
+    return new GoogleApiError('Se agotó la cuota de la API de Google Ads. Se reintentará en la próxima sincronización.', 'quota', status, raw);
+  }
+  if (status === 400) {
+    return new GoogleApiError(`Google Ads rechazó la consulta: ${msg}`, 'invalid', status, raw);
+  }
+  return new GoogleApiError(`Error de la ${api} (${status}): ${msg}`, 'unknown', status, raw);
 }
 
 /**
@@ -47,6 +96,8 @@ interface GoogleErrorBody {
  * los cuerpos reales que devuelve Google.
  */
 export function classifyGoogleError(status: number, body: GoogleErrorBody, api: string): GoogleApiError {
+  const ads = classifyAdsFailure(status, body, api);
+  if (ads !== null) return ads;
   const msg = body.error?.message ?? `HTTP ${status}`;
   const estado = body.error?.status ?? '';
   const razones = (body.error?.details ?? []).map((d) => d.reason ?? '').join(' ');
@@ -87,6 +138,8 @@ export interface GoogleClientOptions {
   sleep?: (ms: number) => Promise<void>;
   attempts?: number;
   timeoutMs?: number;
+  /** Encabezados fijos de cada llamada: Google Ads pide developer-token y login-customer-id. */
+  headers?: Record<string, string>;
 }
 
 const dormir = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms).unref());
@@ -96,6 +149,7 @@ export class GoogleClient {
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #attempts: number;
   readonly #timeoutMs: number;
+  readonly #headers: Record<string, string>;
 
   constructor(
     private readonly tokens: Pick<TokenSource, 'token'>,
@@ -105,6 +159,7 @@ export class GoogleClient {
     this.#sleep = opts.sleep ?? dormir;
     this.#attempts = opts.attempts ?? 4;
     this.#timeoutMs = opts.timeoutMs ?? 30_000;
+    this.#headers = opts.headers ?? {};
   }
 
   /**
@@ -120,6 +175,7 @@ export class GoogleClient {
         res = await this.#fetch(url, {
           method: body === undefined ? 'GET' : 'POST',
           headers: {
+            ...this.#headers,
             authorization: `Bearer ${await this.tokens.token()}`,
             ...(body === undefined ? {} : { 'content-type': 'application/json' }),
           },
@@ -138,7 +194,9 @@ export class GoogleClient {
 
       if (res.ok) return (await res.json()) as T;
 
-      const cuerpo = (await res.json().catch(() => ({}))) as GoogleErrorBody;
+      // searchStream de Google Ads manda el error dentro de un arreglo, como sus resultados.
+      const crudo = (await res.json().catch(() => ({}))) as GoogleErrorBody | GoogleErrorBody[];
+      const cuerpo = (Array.isArray(crudo) ? crudo[0] : crudo) ?? {};
       ultimo = classifyGoogleError(res.status, cuerpo, api);
       if (!reintentable(res.status)) throw ultimo;
       if (intento < this.#attempts) await this.#sleep(1000 * 2 ** (intento - 1));

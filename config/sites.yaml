@@ -17,6 +17,9 @@
 #            URL principal siempre incluida y hasta maxPages en total. Quítala
 #            para volver al automático. Se edita desde el dashboard, en
 #            Configuración -> el sitio -> Páginas que se auditan.
+#   google   opcional. searchConsole y ga4Property (se editan desde el
+#            dashboard) y adsCustomerId, la cuenta de Google Ads del sitio
+#            (224-845-1770), que por ahora solo se edita aquí.
 # ─────────────────────────────────────────────────────────────────────────────
 
 defaults:
@@ -38,6 +41,7 @@ sites:
     google:
       searchConsole: https://www.corthw.com/
       ga4Property: "398989171"
+      adsCustomerId: "224-845-1770"
     pages:
       - https://www.corthw.com/
       - https://www.corthw.com/productos
@@ -53,6 +57,7 @@ sites:
     google:
       searchConsole: sc-domain:matmarkt.com
       ga4Property: "296071280"
+      adsCustomerId: "932-342-9199"
 
   - id: grupohule
     name: Grupo Hule
@@ -69,6 +74,8 @@ sites:
     url: https://www.placadehule.com
     sitemap: https://www.placadehule.com/sitemap.xml # 19 URLs
     enabled: true
+    google:
+      adsCustomerId: "724-606-2815"
 
   - id: hulequeretaro
     name: Hule Querétaro

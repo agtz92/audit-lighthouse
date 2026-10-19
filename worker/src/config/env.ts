@@ -110,6 +110,23 @@ const envSchema = z.object({
   // Periodo que cubren los informes en PDF. month = el último mes calendario
   // completo contra el anterior; 28d = los últimos 28 días contra los 28 previos.
   REPORT_PERIOD: str('month').pipe(z.enum(['month', '28d'])),
+  // ── Google Ads (también en el servicio analytics) ──────────────────────
+  // El developer token sale del Centro de API del MCC. Vacío = Ads apagado,
+  // aunque algún sitio tenga adsCustomerId.
+  GOOGLE_ADS_DEVELOPER_TOKEN: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
+  // El MCC por el que entra la cuenta de servicio. Vacío = acceso directo a
+  // cada cuenta, sin administrador de por medio.
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim().replace(/-/g, '')))
+    .refine((v) => v === undefined || /^\d{10}$/.test(v), { message: 'GOOGLE_ADS_LOGIN_CUSTOMER_ID debe ser el id del MCC, como 123-456-7890' }),
+  // 30 días y no 5: Google Ads atribuye la conversión al día del clic, y una
+  // llamada o un WhatsApp de hace tres semanas sigue llegando.
+  ADS_REFRESH_DAYS: int(30, 1, 90),
   // Caída de clics, en %, que dispara la bandera del webhook de tráfico.
   TRAFFIC_DROP_THRESHOLD: int(20, 1, 100),
   // Por aquí el servicio analytics pregunta si el worker está auditando, para

@@ -53,6 +53,8 @@ const tunablesSchema = z.strictObject({
 export const GSC_PROPERTY = /^(sc-domain:[a-z0-9.-]+|https?:\/\/[^\s]+\/)$/i;
 /** Id numérico de una propiedad de GA4. No es el ID de medición G-XXXX. */
 export const GA4_PROPERTY = /^\d{6,12}$/;
+/** Id de cliente de Google Ads: diez dígitos, ya sin los guiones de 224-845-1770. */
+export const ADS_CUSTOMER_ID = /^\d{10}$/;
 
 const googleSchema = z.strictObject({
   searchConsole: z
@@ -66,6 +68,13 @@ const googleSchema = z.strictObject({
     .union([z.string(), z.number().int()])
     .transform((v) => String(v).trim().replace(/^properties\//, ''))
     .pipe(z.string().regex(GA4_PROPERTY, 'debe ser el id numérico de la propiedad (Administrar › Detalles de la propiedad), no el G-XXXX'))
+    .optional(),
+  // Se acepta como lo muestra Google Ads (224-845-1770) o sin guiones; la API
+  // lo quiere sin ellos.
+  adsCustomerId: z
+    .union([z.string(), z.number().int()])
+    .transform((v) => String(v).trim().replace(/-/g, ''))
+    .pipe(z.string().regex(ADS_CUSTOMER_ID, 'debe ser el id de cliente de Google Ads, como 224-845-1770'))
     .optional(),
 });
 
@@ -117,6 +126,7 @@ export interface ResolvedSite {
   google: {
     searchConsole: string | null;
     ga4Property: string | null;
+    adsCustomerId: string | null;
   };
 }
 
@@ -190,6 +200,7 @@ export function parseSitesConfig(raw: string, source = 'sites.yaml'): ResolvedSi
     google: {
       searchConsole: site.google?.searchConsole ?? null,
       ga4Property: site.google?.ga4Property ?? null,
+      adsCustomerId: site.google?.adsCustomerId ?? null,
     },
   }));
 }

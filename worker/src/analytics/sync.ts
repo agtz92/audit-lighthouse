@@ -1,13 +1,15 @@
 /**
- * Una sincronización de Search Console y GA4: todos los sitios conectados, o
- * uno solo si se pide desde el dashboard.
+ * Una sincronización de Search Console, GA4 y Google Ads: todos los sitios
+ * conectados, o uno solo si se pide desde el dashboard.
  *
  * Por sitio:
  *   1. Series diarias de cada fuente, desde donde se quedó (o 16 meses atrás
  *      la primera vez), volviendo a pedir los últimos días.
  *   2. Desgloses de los cuatro periodos: consultas, páginas, canales,
  *      dispositivos, páginas de entrada, eventos clave y totales.
- *   3. Al final, con todos los datos ya guardados, analitica.pdf.
+ *   3. Google Ads: serie diaria por campaña y sus desgloses por periodo
+ *      (campañas, keywords, términos de búsqueda, anuncios...).
+ *   4. Al final, con todos los datos ya guardados, analitica.pdf.
  *
  * Las fuentes son independientes: si GA4 falla por permisos, Search Console
  * se guarda igual y el sitio queda 'partial', con el motivo en su fila.
@@ -22,12 +24,14 @@ import type { RunStatus, RunTrigger } from '../db/runs.js';
 import {
   startAnalyticsRun, finishAnalyticsRun, startAnalyticsSiteRun, finishAnalyticsSiteRun, recordAnalyticsPdf,
   maxStoredDate, upsertGscDaily, upsertGaDaily, upsertGaAiDaily, saveBreakdown, purgeAnalytics, fetchGscDailyRange,
-  type SourceOutcome,
+  replaceAdsDaily, fetchAdsTotalsRange,
+  type SourceOutcome, type BreakdownKind,
 } from '../db/analytics.js';
 import { fetchGscDaily, fetchGscTop } from '../google/search-console.js';
 import { fetchGaDaily, fetchGaPeriod, fetchGaAiDaily, fetchGaAiPeriod, fetchKeyEventNames, type GaTotals } from '../google/ga4.js';
+import { fetchAdsAccount, fetchAdsDaily, fetchAdInventory, fetchAdsPeriod } from '../google/ads.js';
 import { GoogleApiError, type GoogleClient } from '../google/client.js';
-import { googleClient } from './google.js';
+import { googleClient, googleAdsClient } from './google.js';
 import { addDays, isoToday, periodRanges, syncWindow, PERIOD_KEYS } from './periods.js';
 import { gscTotals, relChange } from '../report/analytics-model.js';
 import { loadAnalyticsReport } from './report-data.js';
@@ -51,6 +55,15 @@ export interface AnalyticsSiteResult {
   status: RunStatus;
   gsc: SourceOutcome & { kind: GoogleApiError['kind'] | null; clicks: number | null; previousClicks: number | null };
   ga: SourceOutcome & { kind: GoogleApiError['kind'] | null; sessions: number | null; previousSessions: number | null };
+  /** property = el id de cliente de Ads. Importes en `currency`, de los últimos 28 días contra los 28 previos. */
+  ads: SourceOutcome & {
+    kind: GoogleApiError['kind'] | null;
+    currency: string | null;
+    cost: number | null;
+    previousCost: number | null;
+    conversions: number | null;
+    previousConversions: number | null;
+  };
 }
 
 export interface AnalyticsSummary {
@@ -65,14 +78,15 @@ export interface AnalyticsSummary {
 
 /** Sitios a sincronizar: uno concreto (aunque esté en pausa), o los conectados y habilitados. */
 export function selectAnalyticsSites(all: ResolvedSite[], siteId: string | undefined): ResolvedSite[] {
-  const conectado = (s: ResolvedSite): boolean => s.google.searchConsole !== null || s.google.ga4Property !== null;
+  const conectado = (s: ResolvedSite): boolean =>
+    s.google.searchConsole !== null || s.google.ga4Property !== null || s.google.adsCustomerId !== null;
   if (siteId !== undefined) return all.filter((s) => s.id === siteId && conectado(s));
   return all.filter((s) => s.enabled && conectado(s));
 }
 
 /** Estado del sitio a partir de sus fuentes conectadas. */
-export function siteStatus(gsc: SourceOutcome['status'], ga: SourceOutcome['status']): RunStatus {
-  const conectadas = [gsc, ga].filter((s) => s !== 'off');
+export function siteStatus(...fuentes: Array<SourceOutcome['status']>): RunStatus {
+  const conectadas = fuentes.filter((s) => s !== 'off');
   const ok = conectadas.filter((s) => s === 'ok').length;
   if (ok === conectadas.length) return 'ok';
   return ok === 0 ? 'failed' : 'partial';
@@ -87,6 +101,7 @@ function describe(err: unknown): { message: string; kind: GoogleApiError['kind']
 async function syncSite(
   site: ResolvedSite,
   client: GoogleClient,
+  adsClient: GoogleClient | null,
   runId: number | null,
   cfg: Env,
   dryRun: boolean,
@@ -104,9 +119,17 @@ async function syncSite(
     property: site.google.ga4Property, status: 'off', error: null, rows: 0, latestDate: null,
     kind: null, sessions: null, previousSessions: null,
   };
+  const ads: AnalyticsSiteResult['ads'] = {
+    property: site.google.adsCustomerId, status: 'off', error: null, rows: 0, latestDate: null,
+    kind: null, currency: null, cost: null, previousCost: null, conversions: null, previousConversions: null,
+  };
   let keyEvents: string[] = [];
 
-  const fallo = (fuente: typeof gsc | typeof ga, nombre: string, err: unknown): void => {
+  const fallo = (
+    fuente: { status: SourceOutcome['status']; error: string | null; kind: GoogleApiError['kind'] | null },
+    nombre: string,
+    err: unknown,
+  ): void => {
     const d = describe(err);
     fuente.status = 'error';
     fuente.error = d.message;
@@ -239,12 +262,105 @@ async function syncSite(
     }
   }
 
-  const status = siteStatus(gsc.status, ga.status);
-  if (siteRunId !== null) {
-    await finishAnalyticsSiteRun(siteRunId, { status, gsc, ga, keyEvents });
+  // ── 3. Google Ads ──────────────────────────────────────────────────────
+  if (site.google.adsCustomerId !== null) {
+    await syncAds(site.id, site.google.adsCustomerId, adsClient, ads, { today, ayer, cfg, dryRun, log, fallo });
   }
-  log.info('sitio sincronizado', { estado: status, gsc: gsc.status, ga4: ga.status, eventos_clave: keyEvents.length });
-  return { siteId: site.id, siteRunId, status, gsc, ga };
+
+  const status = siteStatus(gsc.status, ga.status, ads.status);
+  if (siteRunId !== null) {
+    await finishAnalyticsSiteRun(siteRunId, { status, gsc, ga, keyEvents, ads });
+  }
+  log.info('sitio sincronizado', {
+    estado: status, gsc: gsc.status, ga4: ga.status, ads: ads.status, eventos_clave: keyEvents.length,
+  });
+  return { siteId: site.id, siteRunId, status, gsc, ga, ads };
+}
+
+/**
+ * Serie diaria y desgloses de Google Ads. Escribe el resultado en `ads`.
+ *
+ * Los periodos se anclan en ayer y no en el último día de Search Console: Ads
+ * publica el día anterior completo, y una campaña sin gasto ayer no significa
+ * que falten datos.
+ */
+async function syncAds(
+  siteId: string,
+  customerId: string,
+  adsClient: GoogleClient | null,
+  ads: AnalyticsSiteResult['ads'],
+  ctx: {
+    today: string;
+    ayer: string;
+    cfg: Env;
+    dryRun: boolean;
+    log: Logger;
+    fallo: (fuente: AnalyticsSiteResult['ads'], nombre: string, err: unknown) => void;
+  },
+): Promise<void> {
+  const { today, ayer, cfg, dryRun, log, fallo } = ctx;
+  if (adsClient === null) {
+    ads.status = 'error';
+    ads.kind = 'auth';
+    ads.error = 'Falta GOOGLE_ADS_DEVELOPER_TOKEN en .env: sin él no se puede leer Google Ads.';
+    log.warn('google ads: sin developer token');
+    return;
+  }
+
+  try {
+    ads.currency = (await fetchAdsAccount(adsClient, customerId))?.currency ?? null;
+    const guardado = await maxStoredDate('ads_daily', siteId);
+    // Sin días guardados se repite la carga inicial en cada corrida: es una
+    // sola consulta, y una cuenta sin gasto no deja otra marca de hasta dónde llegó.
+    const v = syncWindow({ today, maxStored: guardado, refreshDays: cfg.ADS_REFRESH_DAYS, backfillDays: cfg.ANALYTICS_BACKFILL_DAYS });
+    const filas = await fetchAdsDaily(adsClient, customerId, v.start, v.end);
+    if (!dryRun) await replaceAdsDaily(siteId, v.start, v.end, filas);
+    ads.rows = filas.length;
+    ads.latestDate = v.end;
+    ads.status = 'ok';
+    log.info('google ads: días sincronizados', {
+      desde: v.start, hasta: v.end, filas: filas.length, carga_inicial: v.backfill, moneda: ads.currency,
+    });
+  } catch (err) {
+    fallo(ads, 'google ads', err);
+    return;
+  }
+
+  const ranges = periodRanges(today, ayer);
+  try {
+    const inventario = await fetchAdInventory(adsClient, customerId);
+    const regiones = new Map<string, string>();
+    for (const p of PERIOD_KEYS) {
+      const r = await fetchAdsPeriod(adsClient, customerId, ranges[p].start, ranges[p].end, inventario, regiones);
+      if (dryRun) continue;
+      const guardar = (kind: BreakdownKind, rows: unknown): Promise<void> => saveBreakdown(siteId, p, kind, ranges[p], rows);
+      await guardar('ads_totals', r.totals);
+      await guardar('ads_campaigns', r.campaigns);
+      await guardar('ads_conversion_actions', r.conversionActions);
+      await guardar('ads_ad_groups', r.adGroups);
+      await guardar('ads_keywords', r.keywords);
+      await guardar('ads_search_terms', r.searchTerms);
+      await guardar('ads_ads', r.ads);
+      await guardar('ads_devices', r.devices);
+      await guardar('ads_landing', r.landing);
+      await guardar('ads_geo', r.geo);
+      await guardar('ads_gender', r.gender);
+      await guardar('ads_age', r.age);
+      await guardar('ads_schedule', r.schedule);
+    }
+    log.info('google ads: desgloses guardados', { anuncios: inventario.length });
+  } catch (err) {
+    fallo(ads, 'google ads (desgloses)', err);
+  }
+
+  if (!dryRun && ads.status === 'ok') {
+    const actual = await fetchAdsTotalsRange(siteId, ranges.last28.start, ranges.last28.end);
+    const previo = await fetchAdsTotalsRange(siteId, ranges.prev28.start, ranges.prev28.end);
+    ads.cost = actual.cost;
+    ads.previousCost = previo.cost;
+    ads.conversions = actual.conversions;
+    ads.previousConversions = previo.conversions;
+  }
 }
 
 /**
@@ -350,13 +466,13 @@ export async function runAnalyticsSync(opts: AnalyticsRunOptions): Promise<Analy
   if (opts.siteId !== undefined && sites.length === 0) {
     const existe = all.some((s) => s.id === opts.siteId);
     throw new Error(existe
-      ? `"${opts.siteId}" no tiene Search Console ni GA4 conectados en ${cfg.SITES_FILE}`
+      ? `"${opts.siteId}" no tiene Search Console, GA4 ni Google Ads conectados en ${cfg.SITES_FILE}`
       : `no existe el sitio "${opts.siteId}" en ${cfg.SITES_FILE}`);
   }
   if (sites.length === 0) {
     // Sin sitios conectados no se registra corrida: sería una fila vacía al
     // día hasta que alguien conecte el primero.
-    baseLog.info('sincronización omitida: ningún sitio tiene Search Console ni GA4 conectados');
+    baseLog.info('sincronización omitida: ningún sitio tiene Search Console, GA4 ni Google Ads conectados');
     return { runId: null, status: 'ok', sitesTotal: 0, sitesOk: 0, sitesFailed: 0, results: [], notes: null };
   }
 
@@ -380,11 +496,17 @@ export async function runAnalyticsSync(opts: AnalyticsRunOptions): Promise<Analy
     return { runId, status: 'failed', sitesTotal: sites.length, sitesOk: 0, sitesFailed: sites.length, results: [], notes };
   }
 
+  // Ads usa la misma llave, ya validada arriba. Sin developer token queda en
+  // null, y cada sitio con adsCustomerId lo reporta como error con el motivo.
+  const adsClient = cfg.GOOGLE_ADS_DEVELOPER_TOKEN !== undefined && sites.some((s) => s.google.adsCustomerId !== null)
+    ? await googleAdsClient(cfg.GOOGLE_CREDENTIALS_FILE, cfg.GOOGLE_ADS_DEVELOPER_TOKEN, cfg.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+    : null;
+
   const limit = pLimit(cfg.ANALYTICS_CONCURRENCY);
   const results = await Promise.all(sites.map((site) => limit(async (): Promise<AnalyticsSiteResult> => {
     const slog = log.child({ site_id: site.id });
     try {
-      return await syncSite(site, client, runId, cfg, dryRun, slog);
+      return await syncSite(site, client, adsClient, runId, cfg, dryRun, slog);
     } catch (err) {
       // Un error de base de datos u otro imprevisto: el sitio falla, la corrida sigue.
       slog.error('el sitio falló fuera de las fuentes', err);
@@ -393,6 +515,7 @@ export async function runAnalyticsSync(opts: AnalyticsRunOptions): Promise<Analy
         siteId: site.id, siteRunId: null, status: 'failed',
         gsc: { ...vacio, clicks: null, previousClicks: null },
         ga: { ...vacio, sessions: null, previousSessions: null },
+        ads: { ...vacio, currency: null, cost: null, previousCost: null, conversions: null, previousConversions: null },
       };
     }
   })));
@@ -435,7 +558,7 @@ export function analyticsFlags(r: AnalyticsSiteResult, dropThreshold: number): A
   const caida = relChange(r.gsc.clicks, r.gsc.previousClicks);
   return {
     trafficDropped: caida !== null && caida <= -dropThreshold / 100,
-    accessLost: (r.gsc.kind !== null && SIN_ACCESO.has(r.gsc.kind)) || (r.ga.kind !== null && SIN_ACCESO.has(r.ga.kind)),
+    accessLost: [r.gsc.kind, r.ga.kind, r.ads.kind].some((k) => k !== null && SIN_ACCESO.has(k)),
   };
 }
 
@@ -464,6 +587,12 @@ async function sendAnalyticsWebhook(summary: AnalyticsSummary, trigger: RunTrigg
           status: r.ga.status, error: r.ga.error, latestDate: r.ga.latestDate,
           sessions28d: r.ga.sessions, previousSessions28d: r.ga.previousSessions,
           change: relChange(r.ga.sessions, r.ga.previousSessions),
+        },
+        googleAds: {
+          status: r.ads.status, error: r.ads.error, latestDate: r.ads.latestDate, currency: r.ads.currency,
+          cost28d: r.ads.cost, previousCost28d: r.ads.previousCost,
+          conversions28d: r.ads.conversions, previousConversions28d: r.ads.previousConversions,
+          costChange: relChange(r.ads.cost, r.ads.previousCost),
         },
         flags: analyticsFlags(r, cfg.TRAFFIC_DROP_THRESHOLD),
       })),

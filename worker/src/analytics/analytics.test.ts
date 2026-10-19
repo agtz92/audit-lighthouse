@@ -101,9 +101,9 @@ sites:
     assert.equal(s?.google.searchConsole, 'sc-domain:uno.example');
   });
 
-  test('sin bloque google, las dos fuentes quedan en null', () => {
+  test('sin bloque google, las tres fuentes quedan en null', () => {
     const [s] = parseSitesConfig('sites:\n  - id: uno\n    name: Uno\n    url: https://uno.example\n');
-    assert.deepEqual(s?.google, { searchConsole: null, ga4Property: null });
+    assert.deepEqual(s?.google, { searchConsole: null, ga4Property: null, adsCustomerId: null });
   });
 
   test('rechaza el ID de medición G-XXXX con un mensaje que dice qué poner', () => {
@@ -118,6 +118,16 @@ sites:
       () => parseSitesConfig('sites:\n  - id: uno\n    name: Uno\n    url: https://uno.example\n    google:\n      searchConsole: https://uno.example\n'),
       /terminada en \//,
     );
+  });
+
+  test('la cuenta de Google Ads se acepta con guiones y se guarda sin ellos', () => {
+    const [s] = parseSitesConfig('sites:\n  - id: uno\n    name: Uno\n    url: https://uno.example\n    google:\n      adsCustomerId: "224-845-1770"\n');
+    assert.equal(s?.google.adsCustomerId, '2248451770');
+    assert.equal(s?.google.searchConsole, null);
+  });
+
+  test('una cuenta de Ads que no es de diez dígitos falla', () => {
+    assert.throws(() => parseSitesConfig('sites:\n  - id: uno\n    name: Uno\n    url: https://uno.example\n    google:\n      adsCustomerId: "224-845"\n'));
   });
 
   test('una llave mal escrita dentro de google falla en lugar de ignorarse', () => {
@@ -140,10 +150,14 @@ sites:
   - id: sin-google
     name: C
     url: https://c.example
+  - id: solo-ads
+    name: D
+    url: https://d.example
+    google: { adsCustomerId: "2248451770" }
 `);
 
   test('la corrida programada toma los conectados y habilitados', () => {
-    assert.deepEqual(selectAnalyticsSites(sites, undefined).map((s) => s.id), ['conectado']);
+    assert.deepEqual(selectAnalyticsSites(sites, undefined).map((s) => s.id), ['conectado', 'solo-ads']);
   });
 
   test('a mano se puede sincronizar uno en pausa', () => {
@@ -163,6 +177,10 @@ describe('siteStatus', () => {
   test('una de dos es parcial', () => {
     assert.equal(siteStatus('ok', 'error'), 'partial');
   });
+  test('Google Ads cuenta como una fuente más', () => {
+    assert.equal(siteStatus('ok', 'ok', 'error'), 'partial');
+    assert.equal(siteStatus('off', 'off', 'ok'), 'ok');
+  });
 });
 
 describe('analyticsFlags', () => {
@@ -170,6 +188,10 @@ describe('analyticsFlags', () => {
     siteId: 'x', siteRunId: 1, status: 'ok',
     gsc: { property: 'sc-domain:x', status: 'ok', error: null, rows: 1, latestDate: null, kind: null, clicks: 100, previousClicks: 100, ...cambios },
     ga: { property: null, status: 'off', error: null, rows: 0, latestDate: null, kind: null, sessions: null, previousSessions: null, ...ga },
+    ads: {
+      property: null, status: 'off', error: null, rows: 0, latestDate: null, kind: null,
+      currency: null, cost: null, previousCost: null, conversions: null, previousConversions: null,
+    },
   });
 
   test('una caída igual al umbral dispara la bandera', () => {
@@ -180,6 +202,12 @@ describe('analyticsFlags', () => {
   test('perder el permiso avisa; una cuota agotada no, porque se arregla sola', () => {
     assert.equal(analyticsFlags(base({}, { status: 'error', kind: 'permission' }), 20).accessLost, true);
     assert.equal(analyticsFlags(base({}, { status: 'error', kind: 'quota' }), 20).accessLost, false);
+  });
+
+  test('perder el acceso a Google Ads también avisa', () => {
+    const r = base({});
+    r.ads = { ...r.ads, status: 'error', kind: 'permission' };
+    assert.equal(analyticsFlags(r, 20).accessLost, true);
   });
 });
 

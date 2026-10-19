@@ -29,6 +29,14 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/analytics.readonly',
 ];
 
+/**
+ * Google Ads no tiene un alcance de solo lectura: `adwords` es el único. Lo que
+ * limita es el nivel que la cuenta de servicio tiene en el MCC, y que este
+ * código solo hace consultas. Va en su propio TokenSource para que los tokens
+ * de Search Console y GA4 sigan siendo de solo lectura.
+ */
+export const ADS_SCOPES = ['https://www.googleapis.com/auth/adwords'];
+
 export class CredentialsError extends Error {
   override readonly name = 'CredentialsError';
 }
@@ -103,6 +111,7 @@ export class TokenSource {
   constructor(
     readonly key: ServiceAccountKey,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly scopes: string[] = SCOPES,
   ) {}
 
   get email(): string {
@@ -126,7 +135,7 @@ export class TokenSource {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: signAssertion(this.key, SCOPES),
+        assertion: signAssertion(this.key, this.scopes),
       }),
       signal: AbortSignal.timeout(15_000),
     });

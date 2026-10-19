@@ -1,11 +1,13 @@
 /**
- * Escritura y lectura de lo que trae la sincronización de Search Console y GA4.
+ * Escritura y lectura de lo que trae la sincronización de Search Console, GA4
+ * y Google Ads.
  */
 
 import { db } from './pool.js';
 import type { RunStatus, RunTrigger, PdfMeta } from './runs.js';
 import type { GscDailyRow } from '../google/search-console.js';
 import type { GaDailyRow, GaAiDailyRow } from '../google/ga4.js';
+import type { AdsDailyRow } from '../google/ads.js';
 import type { Logger } from '../lib/logger.js';
 import type { PeriodKey } from '../analytics/periods.js';
 
@@ -79,7 +81,13 @@ export interface SourceOutcome {
 
 export async function finishAnalyticsSiteRun(
   id: number,
-  o: { status: RunStatus; gsc: SourceOutcome; ga: SourceOutcome; keyEvents: string[] },
+  o: {
+    status: RunStatus;
+    gsc: SourceOutcome;
+    ga: SourceOutcome;
+    keyEvents: string[];
+    ads: SourceOutcome & { currency: string | null };
+  },
 ): Promise<void> {
   await db().query(
     `UPDATE analytics_site_runs SET
@@ -88,13 +96,16 @@ export async function finishAnalyticsSiteRun(
        duration_ms     = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::integer,
        gsc_property    = $3,  gsc_status = $4,  gsc_error = $5,  gsc_rows = $6,  gsc_latest_date = $7,
        ga_property     = $8,  ga_status  = $9,  ga_error  = $10, ga_rows  = $11, ga_latest_date  = $12,
-       ga_key_events   = $13
+       ga_key_events   = $13,
+       ads_customer_id = $14, ads_status = $15, ads_error = $16, ads_rows = $17, ads_latest_date = $18,
+       ads_currency    = $19
      WHERE id = $1`,
     [
       id, o.status,
       o.gsc.property, o.gsc.status, o.gsc.error, o.gsc.rows, o.gsc.latestDate,
       o.ga.property, o.ga.status, o.ga.error, o.ga.rows, o.ga.latestDate,
       o.keyEvents,
+      o.ads.property, o.ads.status, o.ads.error, o.ads.rows, o.ads.latestDate, o.ads.currency,
     ],
   );
 }
@@ -110,7 +121,7 @@ export async function recordAnalyticsPdf(siteRunId: number, meta: PdfMeta | null
 }
 
 /** Último día guardado de una fuente, como YYYY-MM-DD. */
-export async function maxStoredDate(table: 'gsc_daily' | 'ga_daily' | 'ga_ai_daily', siteId: string): Promise<string | null> {
+export async function maxStoredDate(table: 'gsc_daily' | 'ga_daily' | 'ga_ai_daily' | 'ads_daily', siteId: string): Promise<string | null> {
   const { rows } = await db().query<{ d: string | null }>(
     `SELECT to_char(max(date), 'YYYY-MM-DD') AS d FROM ${table} WHERE site_id = $1`,
     [siteId],
@@ -176,10 +187,74 @@ export async function upsertGaAiDaily(siteId: string, rows: GaAiDailyRow[]): Pro
   );
 }
 
+/**
+ * Reemplaza la serie de Ads de una ventana, en una transacción.
+ *
+ * Borra antes de escribir porque Ads no manda filas en cero: si Google
+ * corrige a 0 un día que tenía clics (clics inválidos), con un simple upsert
+ * la fila vieja se quedaría para siempre.
+ */
+export async function replaceAdsDaily(siteId: string, start: string, end: string, rows: AdsDailyRow[]): Promise<void> {
+  const client = await db().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM ads_daily WHERE site_id = $1 AND date BETWEEN $2 AND $3`, [siteId, start, end]);
+    if (rows.length > 0) {
+      await client.query(
+        `INSERT INTO ads_daily (site_id, date, campaign_id, campaign_name, impressions, clicks, cost_micros,
+                                conversions, conversions_value, all_conversions)
+         SELECT $1, d, c, n, i, k, m, v, vv, a
+           FROM unnest($2::date[], $3::bigint[], $4::text[], $5::bigint[], $6::bigint[], $7::bigint[],
+                       $8::numeric[], $9::numeric[], $10::numeric[]) AS t(d, c, n, i, k, m, v, vv, a)`,
+        [
+          siteId,
+          rows.map((r) => r.date),
+          rows.map((r) => r.campaignId),
+          rows.map((r) => r.campaignName),
+          rows.map((r) => r.impressions),
+          rows.map((r) => r.clicks),
+          rows.map((r) => r.costMicros),
+          rows.map((r) => r.conversions),
+          rows.map((r) => r.conversionsValue),
+          rows.map((r) => r.allConversions),
+        ],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Totales de Ads de un rango, para el webhook. El costo ya en la moneda de la cuenta. */
+export async function fetchAdsTotalsRange(
+  siteId: string,
+  start: string,
+  end: string,
+): Promise<{ cost: number; clicks: number; conversions: number }> {
+  const { rows } = await db().query<{ cost: string | null; clicks: string | null; conversions: string | null }>(
+    `SELECT sum(cost_micros) / 1000000.0 AS cost, sum(clicks) AS clicks, sum(conversions) AS conversions
+       FROM ads_daily WHERE site_id = $1 AND date BETWEEN $2 AND $3`,
+    [siteId, start, end],
+  );
+  const r = rows[0];
+  return {
+    cost: Math.round(Number(r?.cost ?? 0) * 100) / 100,
+    clicks: Number(r?.clicks ?? 0),
+    conversions: Math.round(Number(r?.conversions ?? 0) * 100) / 100,
+  };
+}
+
 export type BreakdownKind =
   | 'gsc_queries' | 'gsc_pages'
   | 'ga_totals' | 'ga_channels' | 'ga_devices' | 'ga_landing' | 'ga_key_events'
-  | 'ga_ai_assistants' | 'ga_ai_landing';
+  | 'ga_ai_assistants' | 'ga_ai_landing'
+  | 'ads_totals' | 'ads_campaigns' | 'ads_conversion_actions' | 'ads_ad_groups' | 'ads_keywords'
+  | 'ads_search_terms' | 'ads_ads' | 'ads_devices' | 'ads_landing' | 'ads_geo' | 'ads_gender' | 'ads_age'
+  | 'ads_schedule';
 
 export async function saveBreakdown(
   siteId: string,
@@ -223,13 +298,15 @@ export async function purgeAnalytics(runDays: number, dailyDays: number, log: Lo
   const gsc = await db().query(`DELETE FROM gsc_daily WHERE date < current_date - $1::int`, [dailyDays]);
   const ga = await db().query(`DELETE FROM ga_daily WHERE date < current_date - $1::int`, [dailyDays]);
   const ia = await db().query(`DELETE FROM ga_ai_daily WHERE date < current_date - $1::int`, [dailyDays]);
-  const total = (corridas.rowCount ?? 0) + (gsc.rowCount ?? 0) + (ga.rowCount ?? 0) + (ia.rowCount ?? 0);
+  const ads = await db().query(`DELETE FROM ads_daily WHERE date < current_date - $1::int`, [dailyDays]);
+  const total = (corridas.rowCount ?? 0) + (gsc.rowCount ?? 0) + (ga.rowCount ?? 0) + (ia.rowCount ?? 0) + (ads.rowCount ?? 0);
   if (total > 0) {
     log.info('retención de tráfico', {
       corridas_borradas: corridas.rowCount ?? 0,
       dias_gsc_borrados: gsc.rowCount ?? 0,
       dias_ga_borrados: ga.rowCount ?? 0,
       dias_ia_borrados: ia.rowCount ?? 0,
+      filas_ads_borradas: ads.rowCount ?? 0,
     });
   }
 }

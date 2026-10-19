@@ -7,7 +7,7 @@
  * para que dejarlo ahí funcione sin reiniciar nada.
  */
 
-import { loadServiceAccountKey, TokenSource } from '../google/auth.js';
+import { loadServiceAccountKey, TokenSource, ADS_SCOPES } from '../google/auth.js';
 import { GoogleClient } from '../google/client.js';
 
 let cache: { client: GoogleClient; email: string } | null = null;
@@ -18,6 +18,28 @@ export async function googleClient(credentialsFile: string): Promise<{ client: G
   const tokens = new TokenSource(key);
   cache = { client: new GoogleClient(tokens), email: key.client_email };
   return cache;
+}
+
+let adsCache: GoogleClient | null = null;
+
+/**
+ * Cliente de Google Ads: la misma llave, pero con su propio token (el alcance
+ * de Ads no es de solo lectura) y los dos encabezados que Ads exige.
+ */
+export async function googleAdsClient(
+  credentialsFile: string,
+  developerToken: string,
+  loginCustomerId: string | undefined,
+): Promise<GoogleClient> {
+  if (adsCache !== null) return adsCache;
+  const key = await loadServiceAccountKey(credentialsFile);
+  adsCache = new GoogleClient(new TokenSource(key, fetch, ADS_SCOPES), {
+    headers: {
+      'developer-token': developerToken,
+      ...(loginCustomerId === undefined ? {} : { 'login-customer-id': loginCustomerId }),
+    },
+  });
+  return adsCache;
 }
 
 /** Correo de la cuenta de servicio, o el motivo por el que no se puede leer. */
