@@ -14,7 +14,7 @@ import { env } from '../config/env.js';
 import { loadSitesConfig } from '../config/sites.js';
 import { migrateUp } from '../db/migrate.js';
 import { closeDb } from '../db/pool.js';
-import { closeOrphanAnalyticsRuns, hasSuccessfulAnalyticsRunToday } from '../db/analytics.js';
+import { closeOrphanAnalyticsRuns, hasSuccessfulAnalyticsRunToday, saveAdsProfile } from '../db/analytics.js';
 import { runAnalyticsSync } from './sync.js';
 import { runAdsReports } from './ads-reports.js';
 import { startAnalyticsControl } from './control.js';
@@ -128,6 +128,7 @@ async function main(): Promise<void> {
       return testConnection(client, input, isoToday(cfg.TZ));
     },
     adsReports: lanzarAds,
+    saveAdsProfile,
     properties: async () => {
       const { client } = await googleClient(cfg.GOOGLE_CREDENTIALS_FILE);
       return availableProperties(client);

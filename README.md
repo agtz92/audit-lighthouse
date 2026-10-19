@@ -40,7 +40,7 @@ Eso deja los tres servicios corriendo y la corrida diaria programada a las
 |---|---|---|
 | `db` | Postgres 17 con volumen persistente | 384 MB |
 | `worker` | Scheduler, auditorías y generación de PDFs | 2432 MB |
-| `analytics` | Sincroniza Search Console y GA4 a las 05:00 e imprime `analitica.pdf` | 768 MB |
+| `analytics` | Sincroniza Search Console, GA4 y Google Ads a las 05:00 e imprime `analitica.pdf` y los informes de Ads | 768 MB |
 | `dashboard` | Next.js, publicado en la LAN | 320 MB |
 
 El puerto de Postgres **no se publica**: el worker y el dashboard se hablan por
@@ -341,6 +341,72 @@ como la lista de eventos clave.
 
 ---
 
+## Google Ads
+
+El servicio `analytics` lee también Google Ads por su API, con la misma cuenta
+de servicio, y arma dos informes por cuenta más un análisis semanal. Reemplaza
+al Script de Google Ads que mandaba la auditoría por webhook: aquí el servicio
+pide los datos, así que no hace falta un endpoint público.
+
+### Configurar (una sola vez)
+
+1. Una **cuenta de administrador (MCC)** de Google Ads con las cuentas
+   vinculadas. El developer token solo se pide desde una.
+2. En el MCC, *Admin › Centro de API*: el **developer token**, con acceso
+   **Explorer** o superior (el de prueba solo lee cuentas de prueba).
+3. En Google Cloud, en el proyecto de la cuenta de servicio, habilitar la
+   **Google Ads API**.
+4. En el MCC, *Admin › Acceso y seguridad › Usuarios*: agregar el correo de la
+   cuenta de servicio. *Solo lectura* basta; este código solo consulta.
+5. En `.env`: `GOOGLE_ADS_DEVELOPER_TOKEN` y `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (el
+   id del MCC). Para el texto de los informes, `ANTHROPIC_API_KEY`.
+
+### Conectar un sitio
+
+En `config/sites.yaml`, dentro de `google`:
+
+```yaml
+google:
+  searchConsole: https://www.corthw.com/
+  ga4Property: "398989171"
+  adsCustomerId: "224-845-1770"
+```
+
+La siguiente sincronización trae 16 meses de historia.
+
+### Qué sincroniza
+
+- **Serie diaria por campaña** (`ads_daily`): impresiones, clics, inversión y
+  conversiones. Se vuelven a pedir los últimos 30 días (`ADS_REFRESH_DAYS`)
+  porque Google atribuye cada conversión al día del clic y llega semanas después.
+- **Desgloses de cada periodo**: campañas con cuota de impresiones y
+  presupuesto, acciones de conversión, grupos de anuncios, keywords con Quality
+  Score, términos de búsqueda, anuncios (incluidos los rechazados sin
+  impresiones), PMax, audiencias, dispositivo, páginas de destino, región, edad,
+  género, día y hora.
+
+### Informes
+
+- **`ads-cliente.pdf`**: resultados, dónde está la inversión y recomendaciones,
+  sin jerga.
+- **`ads-admin.pdf`**: todo lo optimizable, con las alertas primero y las
+  páginas de destino cruzadas con la auditoría.
+- **Análisis semanal**: qué mejoró, qué empeoró y qué hacer, contra el
+  *baseline* de la cuenta, que se reescribe cada semana. Se ve en la pestaña
+  Google Ads del sitio, junto al *perfil*: lo que el negocio dice de sí mismo y
+  que se lee antes de escribir.
+
+Los números, las tablas y las alertas se calculan con reglas
+(`worker/src/report/ads-model.ts`); Claude (`ADS_AI_MODEL`, por defecto
+`claude-opus-5-5`) solo redacta la interpretación y las acciones a partir de
+ellos. Sin `ANTHROPIC_API_KEY` los PDFs salen igual, con la conclusión escrita
+con reglas y sin análisis semanal.
+
+Se generan solos al terminar la sincronización del día `ADS_REPORT_WEEKDAY`
+(1 = lunes; 0 = nunca) y con **Generar informes** en la pestaña Google Ads. Leen
+de la base, así que generarlos otra vez no gasta cuota de la API de Ads; el
+análisis semanal no se repite si ya hay uno de los últimos seis días.
+
 ## Correr una auditoría manual
 
 ```bash
@@ -448,6 +514,8 @@ Viven en `data/pdfs/<site-id>/`, uno vigente de cada tipo:
 - **`analitica.pdf`**: búsqueda y tráfico, solo para sitios con Search Console o
   GA4 conectados. Ver [Search Console y GA4](#search-console-y-ga4).
 - **`integral.pdf`**: los dos anteriores juntos, con un resumen ejecutivo propio.
+- **`ads-cliente.pdf`** y **`ads-admin.pdf`**: Google Ads, para el dueño del
+  negocio y para quien administra la cuenta. Ver [Google Ads](#google-ads).
 
 Se generan en A4 desde plantillas propias, con las fuentes embebidas, y la
 numeración de hojas la pone Chromium en el pie.

@@ -536,3 +536,12 @@ export async function latestAdsNoteDate(siteId: string, kind: AdsNoteKind): Prom
   );
   return rows[0]?.created_at ?? null;
 }
+
+/** El perfil lo escribe una persona desde el dashboard; vacío lo borra. */
+export async function saveAdsProfile(siteId: string, profile: string): Promise<void> {
+  await db().query(
+    `INSERT INTO ads_context (site_id, profile) VALUES ($1, $2)
+     ON CONFLICT (site_id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = now()`,
+    [siteId, profile],
+  );
+}

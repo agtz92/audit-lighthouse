@@ -25,7 +25,7 @@ import {
   SitesFileError,
 } from '@/lib/sites-file';
 import { requestRun } from '@/lib/worker-control';
-import { requestSync, testConnection, type ConnectionCheck } from '@/lib/analytics-control';
+import { requestSync, testConnection, requestAdsReports, saveAdsProfile, type ConnectionCheck } from '@/lib/analytics-control';
 
 export interface ActionResult {
   ok: boolean;
@@ -256,4 +256,27 @@ export async function sincronizarTrafico(_prev: ActionResult | null, form: FormD
     ok: true,
     message: `Sincronización #${r.runId ?? '?'} en marcha. Toma uno o dos minutos; la primera de un sitio, un poco más.`,
   };
+}
+
+/** Pide los informes de Ads de un sitio: los PDFs y, si no hay uno reciente, el análisis semanal. */
+export async function generarInformesAds(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const id = String(form.get('id') ?? '');
+  const r = await requestAdsReports(id === '' ? undefined : id);
+  if (!r.ok) return { ok: false, message: r.message };
+  if (id !== '') revalidatePath(`/sites/${id}/ads`);
+  return {
+    ok: true,
+    message: 'Informes en marcha. Con el texto de Claude toman uno o dos minutos por sitio; recarga la página para verlos.',
+  };
+}
+
+/** Guarda el perfil de la cuenta de Ads: el contexto que Claude lee antes de escribir. */
+export async function guardarPerfilAds(_prev: ActionResult | null, form: FormData): Promise<ActionResult> {
+  const id = String(form.get('id') ?? '');
+  const perfil = String(form.get('profile') ?? '');
+  if (perfil.length > 4000) return { ok: false, message: 'El perfil pasa de 4,000 caracteres.' };
+  const r = await saveAdsProfile(id, perfil);
+  if (!r.ok) return { ok: false, message: r.message };
+  revalidatePath(`/sites/${id}/ads`);
+  return { ok: true, message: 'Guardado. Se usa a partir de los próximos informes.' };
 }

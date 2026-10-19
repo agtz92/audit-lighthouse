@@ -676,3 +676,16 @@ table.traffic td { white-space: nowrap; }
   font-size: 9pt;
   color: var(--ink-2);
 }
+
+/* Google Ads: perfil de la cuenta y análisis semanal ------------------------ */
+.ads-profile { display: grid; gap: 8px; padding: 10px 12px 12px; }
+.ads-profile textarea {
+  width: 100%; font: inherit; font-size: 12.5px; line-height: 1.5; padding: 8px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--raised); color: var(--ink); resize: vertical;
+}
+.ads-note { padding: 10px 12px 12px; font-size: 12.5px; line-height: 1.55; }
+.ads-note p { margin: 0 0 8px; max-width: 80ch; }
+.ads-note h3 { font-size: 11px; font-weight: 640; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-muted); margin: 12px 0 4px; }
+.ads-note ul { margin: 0; padding-left: 18px; }
+.ads-note li { margin: 2px 0; max-width: 80ch; }
+.ads-baseline { white-space: pre-wrap; }

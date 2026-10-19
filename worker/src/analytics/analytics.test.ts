@@ -4,7 +4,7 @@ import {
   isoToday, addDays, daysInclusive, syncWindow, periodRanges, reportPeriods, eachDay,
 } from './periods.js';
 import { selectAnalyticsSites, siteStatus, analyticsFlags, type AnalyticsSiteResult } from './sync.js';
-import { parseTestRequest } from './control.js';
+import { parseTestRequest, parseAdsProfileRequest } from './control.js';
 import { parseSitesConfig } from '../config/sites.js';
 import { pathKey } from '../db/analytics.js';
 
@@ -230,5 +230,22 @@ describe('pathKey', () => {
     assert.equal(pathKey('https://www.matmarkt.mx/tapetes/'), pathKey('/tapetes'));
     assert.equal(pathKey('https://www.matmarkt.mx/'), '/');
     assert.equal(pathKey('/pisos?utm=x'), '/pisos');
+  });
+});
+
+describe('parseAdsProfileRequest', () => {
+  test('toma el sitio y el perfil, sin espacios de sobra', () => {
+    assert.deepEqual(parseAdsProfileRequest('{"siteId":"corthw","profile":"  Cortinas industriales.  "}'), {
+      ok: true, siteId: 'corthw', profile: 'Cortinas industriales.',
+    });
+  });
+  test('sin sitio no hay a quién guardarle el perfil', () => {
+    assert.equal(parseAdsProfileRequest('{"profile":"x"}').ok, false);
+  });
+  test('un siteId con ruta no pasa', () => {
+    assert.equal(parseAdsProfileRequest('{"siteId":"../x","profile":"x"}').ok, false);
+  });
+  test('un perfil demasiado largo se rechaza en vez de recortarse', () => {
+    assert.equal(parseAdsProfileRequest(JSON.stringify({ siteId: 'a', profile: 'x'.repeat(4001) })).ok, false);
   });
 });

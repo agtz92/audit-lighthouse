@@ -133,7 +133,7 @@ export interface SiteEntry {
   /** Vacío = las páginas las elige el descubrimiento automático. */
   pages: string[];
   /** null en cada fuente que no está conectada. */
-  google: { searchConsole: string | null; ga4Property: string | null };
+  google: { searchConsole: string | null; ga4Property: string | null; adsCustomerId: string | null };
 }
 
 export interface SitesFile {
@@ -179,6 +179,7 @@ function entryOf(node: unknown): SiteEntry | null {
   const gsc = map.getIn(['google', 'searchConsole']);
   // Sin comillas en el YAML el id de GA4 llega como número.
   const ga4 = map.getIn(['google', 'ga4Property']);
+  const ads = map.getIn(['google', 'adsCustomerId']);
   return {
     id,
     name: String(map.get('name') ?? id),
@@ -192,6 +193,7 @@ function entryOf(node: unknown): SiteEntry | null {
     google: {
       searchConsole: typeof gsc === 'string' && gsc.trim() !== '' ? gsc.trim() : null,
       ga4Property: typeof ga4 === 'string' || typeof ga4 === 'number' ? String(ga4).trim() || null : null,
+      adsCustomerId: typeof ads === 'string' || typeof ads === 'number' ? String(ads).replace(/-/g, '').trim() || null : null,
     },
   };
 }

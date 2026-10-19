@@ -117,3 +117,42 @@ export async function availableProperties(): Promise<AvailableProperties> {
     return vacio;
   }
 }
+
+/** Pide al servicio analytics generar los informes de Ads de un sitio, o de todos. */
+export async function requestAdsReports(siteId?: string): Promise<{ ok: boolean; message: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${ANALYTICS_URL}/ads-reports`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId: siteId ?? null }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      message: `No se pudo hablar con el servicio analytics (${err instanceof Error ? err.message : String(err)}). Revisa que su contenedor esté arriba.`,
+    };
+  }
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (res.status === 202) return { ok: true, message: '' };
+  if (res.status === 409) return { ok: false, message: 'Hay una sincronización o unos informes en curso. Espera a que terminen.' };
+  return { ok: false, message: body.error ?? `El servicio analytics respondió ${res.status}.` };
+}
+
+/** Guarda el perfil de la cuenta de Ads. El dashboard no escribe en la base: lo hace el servicio. */
+export async function saveAdsProfile(siteId: string, profile: string): Promise<{ ok: boolean; message: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${ANALYTICS_URL}/ads-profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId, profile }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    return { ok: false, message: `No se pudo hablar con el servicio analytics (${err instanceof Error ? err.message : String(err)}).` };
+  }
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  return res.ok ? { ok: true, message: '' } : { ok: false, message: body.error ?? `El servicio analytics respondió ${res.status}.` };
+}

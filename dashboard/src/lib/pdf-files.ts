@@ -10,7 +10,7 @@ import { join } from 'node:path';
 const PDF_DIR = process.env.PDF_DIR ?? '/data/pdfs';
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
-export type PdfKind = 'desktop' | 'mobile' | 'analitica' | 'integral';
+export type PdfKind = 'desktop' | 'mobile' | 'analitica' | 'integral' | 'ads-cliente' | 'ads-admin';
 
 export async function pdfExists(siteId: string, kind: PdfKind): Promise<boolean> {
   if (!SLUG.test(siteId)) return false;

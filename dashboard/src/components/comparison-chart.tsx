@@ -25,11 +25,13 @@ export interface ComparisonDatum {
   previous: number | null;
 }
 
-export type ComparisonFormat = 'int' | 'dec';
+export type ComparisonFormat = 'int' | 'dec' | 'money';
 
 const FORMAT: Record<ComparisonFormat, (v: number) => string> = {
   int: (v) => fmtNum(v),
   dec: (v) => fmtNum(v, 1),
+  // Importes de Google Ads, sin centavos: en una gráfica no dicen nada.
+  money: (v) => `$${fmtNum(v)}`,
 };
 
 interface TooltipItem {

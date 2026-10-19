@@ -15,16 +15,19 @@ import { query } from '@/lib/db';
 
 const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 /**
- * Los documentos de cada sitio: los dos de Lighthouse, el de tráfico y el
- * integral. Lista cerrada: el valor termina en una ruta de archivo.
+ * Los documentos de cada sitio: los dos de Lighthouse, el de tráfico, el
+ * integral y los dos de Google Ads. Lista cerrada: el valor termina en una
+ * ruta de archivo.
  */
-const KINDS = new Set(['desktop', 'mobile', 'analitica', 'integral']);
+const KINDS = new Set(['desktop', 'mobile', 'analitica', 'integral', 'ads-cliente', 'ads-admin']);
 
 const NOMBRE: Record<string, string> = {
   desktop: 'el reporte de Lighthouse de escritorio',
   mobile: 'el reporte de Lighthouse móvil',
   analitica: 'el informe de búsqueda y tráfico',
   integral: 'el informe integral',
+  'ads-cliente': 'el informe de Google Ads para el cliente',
+  'ads-admin': 'el informe de Google Ads para administración',
 };
 
 export async function GET(
@@ -58,7 +61,9 @@ export async function GET(
     return new Response(
       kind === 'analitica' || kind === 'integral'
         ? `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera cuando el sitio tiene Search Console o GA4 conectados: el de tráfico después de sincronizar, y el integral al terminar la siguiente auditoría.`
-        : `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera en la siguiente corrida.`,
+        : kind.startsWith('ads-')
+          ? `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera una vez por semana, o con «Generar informes» en la pestaña Google Ads, cuando el sitio tiene adsCustomerId y una sincronización buena.`
+          : `Todavía no hay ${NOMBRE[kind]} de ${site.name}. Se genera en la siguiente corrida.`,
       { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } },
     );
   }

@@ -7,6 +7,7 @@
  *   GET  /health       vivo, ocupado, y el correo de la cuenta de servicio
  *   POST /run          sincronizar ahora (todos, o { siteId })
  *   POST /ads-reports  generar los informes de Ads ahora (todos, o { siteId })
+ *   POST /ads-profile  guardar el perfil de la cuenta de Ads { siteId, profile }
  *   POST /test         probar { searchConsole, ga4Property } sin guardarlos
  *   GET  /properties   propiedades a las que la cuenta tiene acceso
  */
@@ -24,6 +25,23 @@ export interface AnalyticsControlDeps {
   properties: () => Promise<AvailableProperties>;
   /** Arranca los informes de Ads en segundo plano; contesta en cuanto arrancan. */
   adsReports: (siteId: string | undefined) => { started: boolean; error?: string };
+  /** El dashboard no escribe en la base: el perfil pasa por aquí. */
+  saveAdsProfile: (siteId: string, profile: string) => Promise<void>;
+}
+
+/** Tope del perfil: es contexto para Claude, no un documento. */
+export const ADS_PROFILE_MAX = 4000;
+
+/** Cuerpo de POST /ads-profile. El siteId con el mismo contrato que /run. */
+export function parseAdsProfileRequest(raw: string): { ok: true; siteId: string; profile: string } | { ok: false; error: string } {
+  const run = parseRunRequest(raw);
+  if (!run.ok) return run;
+  if (run.siteId === undefined) return { ok: false, error: 'falta siteId' };
+  const body = JSON.parse(raw) as Record<string, unknown>;
+  if (typeof body.profile !== 'string') return { ok: false, error: 'profile tiene que ser texto' };
+  const profile = body.profile.trim();
+  if (profile.length > ADS_PROFILE_MAX) return { ok: false, error: `el perfil pasa de ${ADS_PROFILE_MAX} caracteres` };
+  return { ok: true, siteId: run.siteId, profile };
 }
 
 /** Cuerpo de POST /test. Se acepta texto y nada más: va directo a una URL de Google. */
@@ -75,6 +93,14 @@ export function startAnalyticsControl(port: number, deps: AnalyticsControlDeps):
           if (!r.started) return responder(res, 422, { ok: false, error: r.error ?? 'no se pudieron arrancar los informes' });
           log.info('informes de ads pedidos desde el dashboard', { site_id: parsed.siteId ?? 'todos' });
           return responder(res, 202, { ok: true });
+        }
+
+        if (req.method === 'POST' && ruta === '/ads-profile') {
+          // Cuatro mil caracteres con acentos pasan de 4 KB: este cuerpo sí trae texto.
+          const parsed = parseAdsProfileRequest(await readBody(req, 32_768));
+          if (!parsed.ok) return responder(res, 400, { ok: false, error: parsed.error });
+          await deps.saveAdsProfile(parsed.siteId, parsed.profile);
+          return responder(res, 200, { ok: true });
         }
 
         if (req.method === 'POST' && ruta === '/test') {
