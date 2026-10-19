@@ -211,3 +211,17 @@ sites:
       searchConsole: sc-domain:sombrealo.com
       ga4Property: "292461548"
       adsCustomerId: "447-342-4372"
+
+  - id: enciclopedia-hule
+    name: Enciclopedia Hule
+    url: https://www.enciclopediahule.com/
+    enabled: true
+    google:
+      searchConsole: sc-domain:enciclopediahule.com
+      ga4Property: "559370517"
+
+  - id: phasa-vialidad
+    name: PHASA Vialidad
+    url: https://www.phasavialidad.com/
+    sitemap: https://www.phasavialidad.com/sitemap.xml
+    enabled: true
