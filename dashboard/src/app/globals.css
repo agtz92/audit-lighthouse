@@ -210,6 +210,53 @@ tr.row-down { background: var(--critical-wash); }
 tr.row-down:hover { background: var(--critical-wash); filter: brightness(0.98); }
 tr.row-warn { background: var(--warning-wash); }
 
+/* Bandas de estrategia en el panorama: tinte de su serie y una línea al
+   inicio de cada bloque, para no confundir los scores de escritorio y móvil.
+   Va como background-image para no tapar el fondo opaco del encabezado
+   fijo ni el de las filas caídas o con advertencia. */
+:root {
+  --band-d: color-mix(in srgb, var(--series-desktop) 7%, transparent);
+  --band-m: color-mix(in srgb, var(--series-mobile) 8%, transparent);
+}
+.band-d { background-image: linear-gradient(var(--band-d), var(--band-d)); }
+.band-m { background-image: linear-gradient(var(--band-m), var(--band-m)); }
+.band-d.band-start { border-left: 2px solid color-mix(in srgb, var(--series-desktop) 55%, transparent); }
+.band-m.band-start { border-left: 2px solid color-mix(in srgb, var(--series-mobile) 60%, transparent); }
+thead tr.group-row th { text-align: center; text-transform: none; font-size: 11px; padding: 5px 9px; }
+thead tr.group-row th.band-d { color: var(--series-desktop); }
+thead tr.group-row th.band-m { color: var(--series-mobile); }
+
+/* Encabezados ordenables. */
+.sort-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.sort-btn:hover { color: var(--ink); }
+.sort-btn:focus-visible { outline: 2px solid var(--series-desktop); outline-offset: 2px; border-radius: 2px; }
+.sort-btn.active { color: var(--ink); }
+.sort-arrow { font-size: 9px; opacity: 0.45; }
+.sort-btn.active .sort-arrow { opacity: 1; }
+
+/* Buscador sobre la tabla. */
+.table-tools { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.table-tools .sub { font-size: 11.5px; color: var(--ink-muted); }
+.table-search {
+  width: 260px;
+  max-width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--ink);
+}
+.table-search:focus-visible { outline: 2px solid var(--series-desktop); outline-offset: 1px; }
+
 /* ── Estado: color + ícono + etiqueta, nunca color solo ──────────────────── */
 .status {
   display: inline-flex;
