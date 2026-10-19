@@ -78,6 +78,9 @@ const ETIQUETAS: Record<string, string> = {
   EXCELLENT: 'Excelente', GOOD: 'Buena', POOR: 'Deficiente', PENDING: 'Pendiente',
   APPROVED: 'Aprobado', APPROVED_LIMITED: 'Limitado', DISAPPROVED: 'Rechazado', AREA_OF_INTEREST_ONLY: 'Solo zona de interés',
   TARGET_SPEND: 'Maximizar clics', MAXIMIZE_CONVERSIONS: 'Maximizar conversiones', MAXIMIZE_CONVERSION_VALUE: 'Maximizar valor',
+  CONTACT: 'Contacto', PHONE_CALL_LEAD: 'Llamada', SUBMIT_LEAD_FORM: 'Formulario', PURCHASE: 'Compra', SIGNUP: 'Registro',
+  BOOK_APPOINTMENT: 'Cita', REQUEST_QUOTE: 'Cotización', GET_DIRECTIONS: 'Cómo llegar', OUTBOUND_CLICK: 'Clic saliente',
+  PAGE_VIEW: 'Visita a página', QUALIFIED_LEAD: 'Lead calificado', DEFAULT: 'Otra',
   TARGET_CPA: 'CPA objetivo', TARGET_ROAS: 'ROAS objetivo', MANUAL_CPC: 'CPC manual', TARGET_IMPRESSION_SHARE: 'Cuota de impr. objetivo',
 };
 
@@ -280,7 +283,9 @@ export function buildAdsReport(input: BuildAdsInput): AdsReportData {
       const path = pathOf(l.key);
       return { url: l.key, path, ...kpisOf(l), health: input.health.get(path) ?? null };
     }),
-    geo: shareLines(n.geo, false),
+    // Google da el nombre canónico en inglés con el país: «Mexico City,Mexico».
+    // En una cuenta de un solo país, el país sobra.
+    geo: shareLines(n.geo, false).map((g) => ({ ...g, key: g.key.split(',')[0]?.trim() || g.key })),
     gender: shareLines(n.gender),
     age: shareLines(n.age),
     schedule: {
@@ -558,3 +563,16 @@ export const ADS_BLOCKS: Array<{ id: AdsBlockId; title: string; ask: string; has
   { id: 'audiencias', title: 'Audiencias', ask: '¿Qué audiencias rinden? ¿Algo que escalar o excluir?', hasData: (d) => d.audiences.length > 0 },
   { id: 'salud', title: 'Salud y alertas', ask: 'Medición sospechosa, desperdicio evidente, anuncios rechazados, campañas sin entrega.', hasData: () => true },
 ];
+
+/**
+ * Qué bloques imprime cada informe. El de cliente cuenta resultados y dónde
+ * está el dinero; el de admin, todo lo que se puede optimizar. A Claude solo se
+ * le piden estos: texto que no se imprime es dinero tirado.
+ */
+export const ADS_AUDIENCE_BLOCKS: Record<'cliente' | 'admin', AdsBlockId[]> = {
+  cliente: ['resumen', 'tendencia', 'eficiencia', 'conversiones', 'dispositivo', 'geografia', 'landing'],
+  admin: [
+    'tendencia', 'eficiencia', 'cobertura', 'presupuesto', 'puja', 'conversiones', 'keywords', 'terminos',
+    'anuncios', 'landing', 'pmax', 'dispositivo', 'geografia', 'horario', 'demografia', 'audiencias', 'salud',
+  ],
+};

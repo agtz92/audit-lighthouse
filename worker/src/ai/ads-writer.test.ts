@@ -65,10 +65,12 @@ describe('lo que se le manda a Claude', () => {
   });
 
   test('solo se piden los bloques con datos', () => {
-    const ids = blocksWithData(datos());
+    const ids = blocksWithData(datos(), 'admin');
     assert.ok(ids.includes('eficiencia'));
     assert.ok(!ids.includes('pmax'), 'sin asset groups no hay bloque de PMax');
-    assert.match(reportUserPrompt(datos(), 'admin', { profile: '', baseline: null }), /Bloques a escribir, en este orden: resumen, eficiencia/);
+    assert.ok(!ids.includes('resumen'), 'el de admin no imprime el bloque de resumen');
+    assert.ok(!blocksWithData(datos(), 'cliente').includes('keywords'), 'el de cliente no habla de keywords');
+    assert.match(reportUserPrompt(datos(), 'admin', { profile: '', baseline: null }), /Bloques a escribir, en este orden: eficiencia, tendencia/);
   });
 
   test('el prompt de cliente y el de admin piden cosas distintas', () => {

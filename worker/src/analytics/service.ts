@@ -16,6 +16,7 @@ import { migrateUp } from '../db/migrate.js';
 import { closeDb } from '../db/pool.js';
 import { closeOrphanAnalyticsRuns, hasSuccessfulAnalyticsRunToday } from '../db/analytics.js';
 import { runAnalyticsSync } from './sync.js';
+import { runAdsReports } from './ads-reports.js';
 import { startAnalyticsControl } from './control.js';
 import { googleClient, serviceAccountStatus } from './google.js';
 import { testConnection, availableProperties } from './connection.js';
@@ -53,6 +54,27 @@ async function lanzar(trigger: RunTrigger, siteId?: string): Promise<{ runId: nu
         responder({ runId: null, error: 'la sincronización terminó sin registrarse' });
       });
   });
+}
+
+/**
+ * Informes de Ads a pedido. Comparten el candado con la sincronización: los
+ * dos abren Chromium y escriben en las mismas carpetas de PDFs.
+ */
+function lanzarAds(siteId: string | undefined): { started: boolean; error?: string } {
+  if (running) return { started: false, error: 'hay una sincronización en curso' };
+  running = true;
+  void runAdsReports({ siteId, weekly: 'if-stale', runId: null })
+    .then((r) => {
+      if (r.length === 0) log.warn('informes de ads pedidos, pero ningún sitio tiene Google Ads conectado', { site_id: siteId ?? 'todos' });
+      for (const x of r) {
+        log.info('informe de ads', { site_id: x.siteId, pdfs: x.pdfs, analisis: x.weekly, problemas: x.problems });
+      }
+    })
+    .catch((err: unknown) => log.error('los informes de ads terminaron con excepción', err))
+    .finally(() => {
+      running = false;
+    });
+  return { started: true };
 }
 
 function disparar(trigger: RunTrigger): void {
@@ -105,6 +127,7 @@ async function main(): Promise<void> {
       const { client } = await googleClient(cfg.GOOGLE_CREDENTIALS_FILE);
       return testConnection(client, input, isoToday(cfg.TZ));
     },
+    adsReports: lanzarAds,
     properties: async () => {
       const { client } = await googleClient(cfg.GOOGLE_CREDENTIALS_FILE);
       return availableProperties(client);

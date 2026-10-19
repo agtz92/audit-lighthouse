@@ -39,7 +39,7 @@ export const ANALYTICS_CSS = `
  * flecha dice si mejoró (▲) o empeoró (▼), el signo hacia dónde se movió el
  * número, y el color lo refuerza.
  */
-export function delta(current: number | null, previous: number | null, opts: { lowerIsBetter?: boolean; absolute?: boolean; digits?: number } = {}): string {
+export function delta(current: number | null, previous: number | null, opts: { lowerIsBetter?: boolean; absolute?: boolean; digits?: number; neutral?: boolean } = {}): string {
   if (current === null || previous === null) return '<span class="d">sin comparación</span>';
   if (opts.absolute === true) {
     const d = current - previous;
@@ -50,6 +50,8 @@ export function delta(current: number | null, previous: number | null, opts: { l
   const r = relChange(current, previous);
   if (r === null) return '<span class="d">sin comparación</span>';
   if (Math.abs(r) < 0.005) return '<span class="d">sin cambio</span>';
+  // Neutral: el número se movió, pero subir no es mejor ni peor (la inversión).
+  if (opts.neutral === true) return `<span class="d">${r > 0 ? '▲ +' : '▼ −'}${pct(Math.abs(r), 1)}</span>`;
   const mejora = opts.lowerIsBetter === true ? r < 0 : r > 0;
   return `<span class="d ${mejora ? 'g' : 'b'}">${mejora ? '▲' : '▼'} ${r > 0 ? '+' : '−'}${pct(Math.abs(r), 1)}</span>`;
 }

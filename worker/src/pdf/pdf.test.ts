@@ -51,6 +51,8 @@ describe('sitePdfPaths', () => {
     const p = sitePdfPaths('/data/pdfs', 'x', 1);
     assert.match(p.analitica, /analitica\.pdf$/);
     assert.match(p.integral, /integral\.pdf$/);
+    assert.match(p['ads-cliente'], /ads-cliente\.pdf$/);
+    assert.match(p['ads-admin'], /ads-admin\.pdf$/);
   });
 
   test('cada corrida usa su propio temporal', () => {

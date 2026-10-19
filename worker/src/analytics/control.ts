@@ -6,6 +6,7 @@
  *
  *   GET  /health       vivo, ocupado, y el correo de la cuenta de servicio
  *   POST /run          sincronizar ahora (todos, o { siteId })
+ *   POST /ads-reports  generar los informes de Ads ahora (todos, o { siteId })
  *   POST /test         probar { searchConsole, ga4Property } sin guardarlos
  *   GET  /properties   propiedades a las que la cuenta tiene acceso
  */
@@ -21,6 +22,8 @@ export interface AnalyticsControlDeps {
   account: () => Promise<{ email: string | null; error: string | null }>;
   test: (input: { searchConsole: string | null; ga4Property: string | null }) => Promise<ConnectionCheck>;
   properties: () => Promise<AvailableProperties>;
+  /** Arranca los informes de Ads en segundo plano; contesta en cuanto arrancan. */
+  adsReports: (siteId: string | undefined) => { started: boolean; error?: string };
 }
 
 /** Cuerpo de POST /test. Se acepta texto y nada más: va directo a una URL de Google. */
@@ -62,6 +65,16 @@ export function startAnalyticsControl(port: number, deps: AnalyticsControlDeps):
           if (runId === null) return responder(res, 422, { ok: false, error: error ?? 'no se pudo arrancar la sincronización' });
           log.info('sincronización pedida desde el dashboard', { analytics_run_id: runId, site_id: parsed.siteId ?? 'todos' });
           return responder(res, 202, { ok: true, runId });
+        }
+
+        if (req.method === 'POST' && ruta === '/ads-reports') {
+          const parsed = parseRunRequest(await readBody(req));
+          if (!parsed.ok) return responder(res, 400, { ok: false, error: parsed.error });
+          if (deps.isRunning()) return responder(res, 409, { ok: false, error: 'hay una sincronización o unos informes en curso' });
+          const r = deps.adsReports(parsed.siteId);
+          if (!r.started) return responder(res, 422, { ok: false, error: r.error ?? 'no se pudieron arrancar los informes' });
+          log.info('informes de ads pedidos desde el dashboard', { site_id: parsed.siteId ?? 'todos' });
+          return responder(res, 202, { ok: true });
         }
 
         if (req.method === 'POST' && ruta === '/test') {

@@ -14,7 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { ADS_BLOCKS, adsLabel, type AdsBlockId, type AdsReportData, type AdsKpis } from '../report/ads-model.js';
+import { ADS_BLOCKS, ADS_AUDIENCE_BLOCKS, adsLabel, type AdsBlockId, type AdsReportData, type AdsKpis } from '../report/ads-model.js';
 
 export type AdsAudience = 'cliente' | 'admin';
 export type AdsEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -78,9 +78,9 @@ function kpis(k: AdsKpis): Record<string, number | null> {
 /** Cuántas filas de cada lista larga ve Claude. Son las de más gasto; se le dice. */
 const LIMITES = { gruposDeAnuncios: 15, keywords: 40, terminos: 40, anuncios: 15, audiencias: 15, landing: 15, geo: 12 };
 
-/** Los bloques con algo que decir: a los demás no se les pide texto. */
-export function blocksWithData(d: AdsReportData): AdsBlockId[] {
-  return ADS_BLOCKS.filter((b) => b.hasData(d)).map((b) => b.id);
+/** Los bloques que ese informe imprime y que tienen algo que decir: a los demás no se les pide texto. */
+export function blocksWithData(d: AdsReportData, audience: AdsAudience): AdsBlockId[] {
+  return ADS_BLOCKS.filter((b) => ADS_AUDIENCE_BLOCKS[audience].includes(b.id) && b.hasData(d)).map((b) => b.id);
 }
 
 /**
@@ -175,7 +175,7 @@ Además reescribes el baseline: un texto de no más de 350 palabras que sirva de
 ${REGLAS}`;
 
 export function reportUserPrompt(d: AdsReportData, audience: AdsAudience, ctx: AccountContext): string {
-  const ids = blocksWithData(d);
+  const ids = blocksWithData(d, audience);
   return [
     `Redacta el informe ${audience === 'cliente' ? 'para el cliente' : 'para el administrador'} de la cuenta ${d.site.name}, periodo ${d.period.label} contra ${d.period.previousLabel}.`,
     `Bloques a escribir, en este orden: ${ids.join(', ')}.`,

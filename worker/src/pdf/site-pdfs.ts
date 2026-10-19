@@ -19,11 +19,12 @@ import type { PdfMeta } from '../db/runs.js';
 import type { Logger } from '../lib/logger.js';
 
 /**
- * Los cuatro documentos de un sitio. Escritorio, móvil e integral los escribe
- * el worker al terminar Lighthouse; el de tráfico, el servicio analytics.
+ * Los documentos de un sitio. Escritorio, móvil e integral los escribe el
+ * worker al terminar Lighthouse; el de tráfico y los dos de Google Ads, el
+ * servicio analytics.
  */
-export type PdfKind = LighthouseStrategy | 'analitica' | 'integral';
-export const PDF_KINDS: readonly PdfKind[] = ['desktop', 'mobile', 'analitica', 'integral'];
+export type PdfKind = LighthouseStrategy | 'analitica' | 'integral' | 'ads-cliente' | 'ads-admin';
+export const PDF_KINDS: readonly PdfKind[] = ['desktop', 'mobile', 'analitica', 'integral', 'ads-cliente', 'ads-admin'];
 
 /**
  * Quién escribe. Los dos procesos comparten la carpeta de cada sitio, así que
@@ -38,6 +39,8 @@ export interface SitePdfPaths {
   mobile: string;
   analitica: string;
   integral: string;
+  'ads-cliente': string;
+  'ads-admin': string;
   tmpDir: string;
 }
 
@@ -58,6 +61,8 @@ export function sitePdfPaths(
     mobile: join(dir, 'mobile.pdf'),
     analitica: join(dir, 'analitica.pdf'),
     integral: join(dir, 'integral.pdf'),
+    'ads-cliente': join(dir, 'ads-cliente.pdf'),
+    'ads-admin': join(dir, 'ads-admin.pdf'),
     // El temporal vive junto al destino para que rename(2) sea atómico: cruzar
     // sistemas de archivos lo convertiría en copiar y borrar.
     tmpDir: join(dir, `${tmpPrefix(writer)}${runId}`),

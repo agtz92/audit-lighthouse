@@ -108,3 +108,9 @@ export function eachDay(range: DateRange): string[] {
   for (let d = range.start; d <= range.end; d = addDays(d, 1)) out.push(d);
   return out;
 }
+
+/** Día de la semana de una fecha ISO: 1 = lunes … 7 = domingo. */
+export function isoWeekday(iso: string): number {
+  const d = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}

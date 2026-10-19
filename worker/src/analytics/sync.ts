@@ -39,6 +39,9 @@ import { renderAnalyticsHtml, trafficFooterText } from '../report/analytics-temp
 import { launchBrowser, cdpPortForSlot } from '../audit/browser.js';
 import { sitePdfPaths, writeReportPdf, cleanStaleTmpDirs } from '../pdf/site-pdfs.js';
 import { deliverWebhook } from '../notify/webhook.js';
+import { waitForWorkerIdle } from './worker-idle.js';
+import { runAdsReports } from './ads-reports.js';
+import { isoWeekday } from './periods.js';
 
 export interface AnalyticsRunOptions {
   trigger: RunTrigger;
@@ -366,35 +369,6 @@ async function syncAds(
   }
 }
 
-/**
- * Espera a que el worker termine de auditar antes de abrir Chromium.
- *
- * Los dos procesos juntos no caben en la memoria de Docker: el worker usa
- * hasta 2.4 GB durante Lighthouse. A las 05:00 nunca coinciden, pero un
- * «Sincronizar ahora» a media auditoría sí. Los datos se guardan sin esperar;
- * lo que se pospone son solo los PDFs.
- */
-async function waitForWorkerIdle(workerUrl: string, maxMs: number, log: Logger): Promise<boolean> {
-  const limite = Date.now() + maxMs;
-  let avisado = false;
-  while (Date.now() < limite) {
-    try {
-      const res = await fetch(`${workerUrl}/health`, { signal: AbortSignal.timeout(3000) });
-      const body = (await res.json()) as { corriendo?: boolean };
-      if (body.corriendo !== true) return true;
-    } catch {
-      // Sin worker no hay con quién competir por memoria.
-      return true;
-    }
-    if (!avisado) {
-      log.info('el worker está auditando; los PDFs esperan a que termine');
-      avisado = true;
-    }
-    await new Promise((r) => setTimeout(r, 30_000).unref());
-  }
-  return false;
-}
-
 async function writePdfs(
   sites: ResolvedSite[],
   results: AnalyticsSiteResult[],
@@ -524,6 +498,23 @@ export async function runAnalyticsSync(opts: AnalyticsRunOptions): Promise<Analy
   })));
 
   const pdfs = await writePdfs(sites, results, runId, cfg, dryRun, log);
+
+  // Los informes de Ads, el día que toca. Solo en la corrida programada (o la
+  // de recuperación de ese mismo día) y de todos los sitios: un «Sincronizar
+  // ahora» de un sitio no dispara textos de Claude que nadie pidió.
+  if (!dryRun && opts.siteId === undefined && opts.trigger !== 'manual'
+    && cfg.ADS_REPORT_WEEKDAY !== 0 && isoWeekday(isoToday(cfg.TZ)) === cfg.ADS_REPORT_WEEKDAY
+    && results.some((r) => r.ads.status === 'ok')) {
+    try {
+      const ads = await runAdsReports({ weekly: 'if-stale', runId, log });
+      log.info('informes de ads generados', {
+        sitios: ads.length, pdfs: ads.reduce((a, r) => a + r.pdfs, 0), analisis: ads.filter((r) => r.weekly).length,
+        problemas: ads.flatMap((r) => r.problems.map((p) => `${r.siteId}: ${p}`)),
+      });
+    } catch (err) {
+      log.error('los informes de ads fallaron; la sincronización sigue siendo válida', err);
+    }
+  }
 
   const sitesOk = results.filter((r) => r.status !== 'failed').length;
   const sitesFailed = results.length - sitesOk;
