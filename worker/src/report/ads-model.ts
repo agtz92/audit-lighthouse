@@ -525,3 +525,36 @@ export function adsVerdict(d: AdsReportData): string {
   if (criticas > 0) partes.push(`Hay ${criticas} alerta${criticas === 1 ? '' : 's'} crítica${criticas === 1 ? '' : 's'} que atender primero.`);
   return partes.join(' ');
 }
+
+// ── Bloques ─────────────────────────────────────────────────────────────────
+
+export type AdsBlockId =
+  | 'resumen' | 'eficiencia' | 'conversiones' | 'tendencia' | 'pmax' | 'cobertura' | 'presupuesto' | 'puja'
+  | 'keywords' | 'terminos' | 'geografia' | 'dispositivo' | 'horario' | 'demografia' | 'anuncios' | 'landing'
+  | 'audiencias' | 'salud';
+
+/**
+ * Los bloques que responden los informes, en orden. Son los de ads-analyst:
+ * `ask` es lo que se le pide a Claude, `hasData` decide si el bloque existe
+ * (un informe sin PMax no lleva bloque de PMax, en vez de decir «sin datos»).
+ */
+export const ADS_BLOCKS: Array<{ id: AdsBlockId; title: string; ask: string; hasData: (d: AdsReportData) => boolean }> = [
+  { id: 'resumen', title: 'Resumen', ask: 'Foto general: gasto, conversiones, costo por conversión, CTR. ¿Cómo viene la cuenta?', hasData: () => true },
+  { id: 'eficiencia', title: 'Eficiencia por campaña', ask: 'Por campaña: gasto, conversiones, costo por conversión y ROAS si hay valor. ¿Cuáles rinden y cuáles desperdician?', hasData: (d) => d.campaigns.length > 0 },
+  { id: 'conversiones', title: 'Conversiones por acción', ask: '¿Qué acciones de conversión dominan? ¿Hay acciones que no cuentan en «Conversiones» o medición sospechosa?', hasData: (d) => d.conversionActions.length > 0 },
+  { id: 'tendencia', title: 'Tendencia', ask: 'Últimos 7 días contra los 7 previos, y el periodo contra el anterior: qué mejoró, qué empeoró y cuánto.', hasData: (d) => d.previousTotals !== null || d.week.previous.cost > 0 },
+  { id: 'pmax', title: 'Performance Max', ask: 'Asset groups (fuerza, gasto, conversiones, assets no elegibles) y categorías de búsqueda. ¿Qué ayuda y qué falla?', hasData: (d) => d.assetGroups.length > 0 },
+  { id: 'cobertura', title: 'Cobertura de mercado', ask: 'Cuota de impresiones y lo perdido por ranking y por presupuesto. ¿Dónde se deja ir mercado y por qué?', hasData: (d) => d.campaigns.some((c) => c.impressionShare !== null) },
+  { id: 'presupuesto', title: 'Presupuesto', ask: 'Uso del presupuesto diario y pérdida por presupuesto. ¿Qué campañas están topadas? ¿Dónde reasignar?', hasData: (d) => d.campaigns.some((c) => c.dailyBudget !== null) },
+  { id: 'puja', title: 'Estrategia de puja y canales', ask: 'Estrategia de puja y canal de cada campaña contra su desempeño. ¿Está funcionando?', hasData: (d) => d.campaigns.length > 0 },
+  { id: 'keywords', title: 'Keywords', ask: 'Keywords de más gasto con su Quality Score y conversiones. ¿Cuáles convierten, cuáles desperdician y qué componente del QS falla?', hasData: (d) => d.keywords.length > 0 },
+  { id: 'terminos', title: 'Términos de búsqueda', ask: '¿Hay términos irrelevantes para negativizar? ¿Oportunidades para nuevas keywords?', hasData: (d) => d.searchTerms.length > 0 },
+  { id: 'geografia', title: 'Geografía', ask: 'Regiones por gasto y conversiones. ¿Dónde rinde mejor o peor?', hasData: (d) => d.geo.length > 0 },
+  { id: 'dispositivo', title: 'Dispositivo', ask: 'Desempeño por dispositivo. ¿Conviene ajustar pujas?', hasData: (d) => d.devices.length > 0 },
+  { id: 'horario', title: 'Día y hora', ask: '¿Qué días y horas rinden mejor? ¿Conviene programar anuncios?', hasData: (d) => d.schedule.byDay.length > 0 },
+  { id: 'demografia', title: 'Demografía', ask: 'Edad y género: ¿qué segmentos rinden mejor o peor?', hasData: (d) => d.age.length > 0 || d.gender.length > 0 },
+  { id: 'anuncios', title: 'Anuncios', ask: 'Tipo, fuerza, aprobación, títulos y desempeño. ¿Qué anuncios mejorar?', hasData: (d) => d.ads.length > 0 },
+  { id: 'landing', title: 'Páginas de destino', ask: '¿Qué páginas reciben más inversión, cómo convierten y qué dice la auditoría de su velocidad y estado?', hasData: (d) => d.landing.length > 0 },
+  { id: 'audiencias', title: 'Audiencias', ask: '¿Qué audiencias rinden? ¿Algo que escalar o excluir?', hasData: (d) => d.audiences.length > 0 },
+  { id: 'salud', title: 'Salud y alertas', ask: 'Medición sospechosa, desperdicio evidente, anuncios rechazados, campañas sin entrega.', hasData: () => true },
+];

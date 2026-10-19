@@ -496,3 +496,43 @@ export async function fetchLatestAdsState(siteId: string): Promise<{ customerId:
   const r = rows[0];
   return r === undefined ? null : { customerId: r.ads_customer_id, currency: r.ads_currency ?? 'MXN', latestDate: r.d };
 }
+
+// ── Texto de Claude sobre las cuentas de Ads ────────────────────────────────
+
+export async function fetchAdsContext(siteId: string): Promise<{ profile: string; baseline: string | null }> {
+  const { rows } = await db().query<{ profile: string; baseline: string | null }>(
+    `SELECT profile, baseline FROM ads_context WHERE site_id = $1`,
+    [siteId],
+  );
+  return rows[0] ?? { profile: '', baseline: null };
+}
+
+export async function saveAdsBaseline(siteId: string, baseline: string): Promise<void> {
+  await db().query(
+    `INSERT INTO ads_context (site_id, baseline, baseline_updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (site_id) DO UPDATE SET baseline = EXCLUDED.baseline, baseline_updated_at = now(), updated_at = now()`,
+    [siteId, baseline],
+  );
+}
+
+export type AdsNoteKind = 'weekly' | 'cliente' | 'admin';
+
+export async function saveAdsNote(
+  siteId: string,
+  n: { kind: AdsNoteKind; range: { start: string; end: string }; model: string; content: unknown; inputTokens: number; outputTokens: number },
+): Promise<void> {
+  await db().query(
+    `INSERT INTO ads_notes (site_id, kind, period_start, period_end, model, content, input_tokens, output_tokens)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+    [siteId, n.kind, n.range.start, n.range.end, n.model, JSON.stringify(n.content), n.inputTokens, n.outputTokens],
+  );
+}
+
+/** El último análisis semanal: si ya hay uno de esta semana no se vuelve a pagar. */
+export async function latestAdsNoteDate(siteId: string, kind: AdsNoteKind): Promise<Date | null> {
+  const { rows } = await db().query<{ created_at: Date }>(
+    `SELECT created_at FROM ads_notes WHERE site_id = $1 AND kind = $2 ORDER BY created_at DESC LIMIT 1`,
+    [siteId, kind],
+  );
+  return rows[0]?.created_at ?? null;
+}

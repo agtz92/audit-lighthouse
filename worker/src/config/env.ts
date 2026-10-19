@@ -127,6 +127,22 @@ const envSchema = z.object({
   // 30 días y no 5: Google Ads atribuye la conversión al día del clic, y una
   // llamada o un WhatsApp de hace tres semanas sigue llegando.
   ADS_REFRESH_DAYS: int(30, 1, 90),
+  // Día de la semana (1 = lunes … 7 = domingo) en que, al terminar la
+  // sincronización, se generan los informes de Ads y el análisis semanal.
+  // 0 = nunca solos; solo a pedido desde el dashboard.
+  ADS_REPORT_WEEKDAY: int(1, 0, 7),
+
+  // ── Claude, para el texto de los informes de Ads ───────────────────────
+  // La llave la lee el SDK de ANTHROPIC_API_KEY. Sin ella los informes salen
+  // igual, con la conclusión escrita con reglas y sin análisis semanal.
+  ANTHROPIC_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
+  ADS_AI_MODEL: str('claude-opus-5-5'),
+  // Opus 5.5 usa medium si no se dice nada; se deja explícito. Redactar a
+  // partir de números ya calculados no necesita más.
+  ADS_AI_EFFORT: str('medium').pipe(z.enum(['low', 'medium', 'high', 'xhigh', 'max'])),
   // Caída de clics, en %, que dispara la bandera del webhook de tráfico.
   TRAFFIC_DROP_THRESHOLD: int(20, 1, 100),
   // Por aquí el servicio analytics pregunta si el worker está auditando, para
