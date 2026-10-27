@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyGoogleError, GoogleClient } from './client.js';
+import { classifyGoogleError, GoogleClient, networkError } from './client.js';
 import {
   field, metricsOf, parseDaily, parseCampaigns, parseKeywords, parseSearchTerms, mergeAds, parseAdInventory,
   labeledBy, parseSchedule, gaql, parseConversionActions, parseConversionActionInventory, parsePmaxAssets,
@@ -203,5 +203,43 @@ describe('inventario y PMax', () => {
       [{ campaign: { id: '1' }, adGroupCriterion: { displayName: 'Compradores', type: 'USER_INTEREST' }, ...m(5, 1, 1_000_000, 0) }],
     );
     assert.deepEqual(a.map((x) => [x.level, x.cost]), [['campaign', 2], ['ad_group', 1]]);
+  });
+});
+
+/** Como los arma undici: «fetch failed» arriba y la causa real en `cause`. */
+function fetchFailed(cause: Record<string, unknown>): TypeError {
+  return Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(String(cause.message ?? '')), cause) });
+}
+
+describe('errores de red', () => {
+  const URL_ADS = 'https://googleads.googleapis.com/v26/customers/1/googleAds:searchStream';
+
+  test('un DNS que no resuelve el dominio de Ads apunta al bloqueador de anuncios', () => {
+    const e = networkError(fetchFailed({ code: 'ENOTFOUND', hostname: 'googleads.googleapis.com', message: 'getaddrinfo ENOTFOUND googleads.googleapis.com' }), URL_ADS);
+    assert.equal(e.kind, 'network');
+    assert.match(e.message, /googleads\.googleapis\.com/);
+    assert.match(e.message, /Pi-hole/);
+    assert.match(e.raw, /ENOTFOUND/);
+  });
+
+  test('un DNS que contesta 0.0.0.0 también es bloqueo', () => {
+    const e = networkError(fetchFailed({ code: 'ECONNREFUSED', address: '0.0.0.0', message: 'connect ECONNREFUSED 0.0.0.0:443' }), URL_ADS);
+    assert.match(e.message, /bloqueador/);
+  });
+
+  test('otra falla de red dice el código y el host, no solo «fetch failed»', () => {
+    const e = networkError(fetchFailed({ code: 'ECONNRESET', message: 'other side closed' }), URL_ADS);
+    assert.equal(e.message, 'No se pudo contactar a googleads.googleapis.com (ECONNRESET): other side closed');
+  });
+
+  test('un tiempo de espera se dice así', () => {
+    const e = networkError(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }), URL_ADS);
+    assert.match(e.message, /no respondió a tiempo/);
+  });
+
+  test('el cliente reporta la causa después de agotar los reintentos', async () => {
+    const fake = (async () => { throw fetchFailed({ code: 'ENOTFOUND', hostname: 'googleads.googleapis.com', message: 'x' }); }) as unknown as typeof fetch;
+    const client = new GoogleClient({ token: async () => 't' }, { fetchImpl: fake, attempts: 2, sleep: async () => {} });
+    await assert.rejects(gaql(client, '1', 'SELECT customer.id FROM customer'), /DNS de este servidor no deja llegar a googleads\.googleapis\.com/);
   });
 });

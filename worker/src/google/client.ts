@@ -129,6 +129,43 @@ export function classifyGoogleError(status: number, body: GoogleErrorBody, api: 
   return new GoogleApiError(`Error de Google (${status}): ${msg}`, 'unknown', status, msg);
 }
 
+/**
+ * Un error de red, con la causa real. Node solo dice «fetch failed»; lo que
+ * sirve —el código y el host— viene en `cause`, y sin eso no hay forma de
+ * distinguir un DNS bloqueado de un tiempo de espera.
+ */
+export function networkError(err: unknown, url: string): GoogleApiError {
+  const causa = (err as { cause?: { code?: unknown; hostname?: unknown; address?: unknown; message?: unknown } } | null)?.cause;
+  const codigo = typeof causa?.code === 'string' ? causa.code : null;
+  let host = typeof causa?.hostname === 'string' ? causa.hostname : null;
+  if (host === null) {
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      host = 'Google';
+    }
+  }
+  const nombre = err instanceof Error ? err.name : '';
+  const detalle = typeof causa?.message === 'string' ? causa.message : err instanceof Error ? err.message : String(err);
+  const raw = `${err instanceof Error ? err.message : String(err)}${codigo === null ? '' : ` (${codigo})`}: ${detalle}`;
+
+  if (nombre === 'TimeoutError' || nombre === 'AbortError') {
+    return new GoogleApiError(`${host} no respondió a tiempo.`, 'network', null, raw);
+  }
+  // Un bloqueador de anuncios en la red (Pi-hole, AdGuard, NextDNS) contesta
+  // «no existe» o 0.0.0.0 a los dominios con «googleads», y la API de Ads vive
+  // justo en googleads.googleapis.com.
+  const bloqueado = codigo === 'ENOTFOUND' || codigo === 'EAI_AGAIN'
+    || (codigo === 'ECONNREFUSED' && (causa?.address === '0.0.0.0' || causa?.address === '::' || causa?.address === '127.0.0.1'));
+  if (bloqueado) {
+    return new GoogleApiError(
+      `El DNS de este servidor no deja llegar a ${host} (${codigo}). Si la red tiene un bloqueador de anuncios (Pi-hole, AdGuard, NextDNS), agrega ${host} a su lista permitida.`,
+      'network', null, raw,
+    );
+  }
+  return new GoogleApiError(`No se pudo contactar a ${host}${codigo === null ? '' : ` (${codigo})`}: ${detalle}`, 'network', null, raw);
+}
+
 function reintentable(status: number): boolean {
   return status === 429 || status >= 500;
 }
@@ -184,10 +221,7 @@ export class GoogleClient {
         });
       } catch (err) {
         if (err instanceof Error && err.name === 'CredentialsError') throw err;
-        ultimo = new GoogleApiError(
-          `No se pudo contactar a Google: ${err instanceof Error ? err.message : String(err)}`,
-          'network', null, String(err),
-        );
+        ultimo = networkError(err, url);
         if (intento < this.#attempts) await this.#sleep(1000 * 2 ** (intento - 1));
         continue;
       }
