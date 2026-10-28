@@ -26,7 +26,7 @@ export interface AdsTextInput {
 
 const ADS_CSS = `
 ${ANALYTICS_CSS}
-.ai { font-size:9.5pt; line-height:1.5; margin:8px 0 0; max-width:70ch; }
+.ai { font-size:9.5pt; line-height:1.5; margin:8px 0 0; }
 .ai + .ai { margin-top:6px; }
 .kpis.k3 { grid-template-columns:repeat(3,1fr); }
 .qs { font-family:"Roboto Mono",monospace; font-size:8.5pt; }
@@ -286,7 +286,7 @@ function adTable(d: AdsReportData, $: (v: number | null) => string): string {
   return `<table class="mini">
     <thead><tr><th>Anuncio</th><th>Fuerza</th><th>Estado</th><th class="num">Inversión</th><th class="num">Conv.</th></tr></thead>
     <tbody>${d.ads.slice(0, 10).map((a) => `<tr>
-      <td>${esc(a.headlines.slice(0, 3).join(' / ') || a.type)}<br><span class="hint">${esc(a.adGroup)}</span></td>
+      <td>${esc(a.headlines.slice(0, 3).join(' / ') || adsLabel(a.type))}<br><span class="hint">${esc(a.adGroup)}</span></td>
       <td class="${a.strength === 'POOR' ? 'b' : ''}">${esc(adsLabel(a.strength))}</td>
       <td><span class="tag ${tagAprob(a.approval)}">${esc(adsLabel(a.approval))}</span></td>
       <td class="num">${$(a.cost)}</td>
@@ -303,7 +303,7 @@ function landingTable(d: AdsReportData, $: (v: number | null) => string): string
       const caida = l.health !== null && (!l.health.ok || (l.health.httpStatus !== null && l.health.httpStatus >= 400));
       const lenta = !caida && l.health?.loadMs !== null && l.health?.loadMs !== undefined && l.health.loadMs > 4000;
       return `<tr>
-      <td class="path cut">${esc(l.path)}</td>
+      <td class="path cut">${esc(l.path)}${l.url.startsWith('http://') ? ' <span class="tag tag-w">http</span>' : ''}</td>
       <td class="num">${$(l.cost)}</td>
       <td class="num ${l.conversions === 0 && l.cost > 0 ? 'b' : ''}">${int(l.conversions)}</td>
       <td class="num">${pct(l.convRate)}</td>

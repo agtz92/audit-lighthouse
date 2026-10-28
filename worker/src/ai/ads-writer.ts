@@ -154,7 +154,8 @@ Reglas para todos los textos:
 - El gasto de una campaña es el del periodo completo; presupuesto_diario es por día. Para compararlos usa uso_del_presupuesto, que ya está calculado. Que el gasto del periodo sea mucho mayor que el presupuesto diario es normal.
 - Las listas de keywords, términos, landing pages y regiones vienen recortadas a las de más gasto: no digas que son todas.
 - Las alertas_calculadas ya salieron de reglas y se imprimen aparte: no las repitas una por una; úsalas para priorizar.
-- Escribe un bloque solo para los ids que se te piden. Cada bloque en uno o dos párrafos cortos.`.trim();
+- Escribe un bloque solo para los ids que se te piden.
+- Brevedad: el texto va en un PDF con hojas de tamaño fijo, debajo de tablas que ya muestran las cifras. No repitas lo que dice la tabla; di qué significa y qué hacer. Respeta los límites de palabras que se te dan.`.trim();
 
 export const SYSTEM_BY_AUDIENCE: Record<AdsAudience, string> = {
   cliente: `Eres un consultor de Google Ads que le escribe al DUEÑO DEL NEGOCIO, que no es técnico.
@@ -180,7 +181,9 @@ export function reportUserPrompt(d: AdsReportData, audience: AdsAudience, ctx: A
     `Redacta el informe ${audience === 'cliente' ? 'para el cliente' : 'para el administrador'} de la cuenta ${d.site.name}, periodo ${d.period.label} contra ${d.period.previousLabel}.`,
     `Bloques a escribir, en este orden: ${ids.join(', ')}.`,
     `Qué cubre cada bloque:\n${ADS_BLOCKS.filter((b) => ids.includes(b.id)).map((b) => `- ${b.id}: ${b.ask}`).join('\n')}`,
-    `De tres a seis acciones.`,
+    audience === 'cliente'
+      ? 'Límites: la conclusión en máximo 70 palabras; cada bloque en un solo párrafo de máximo 60 palabras; de tres a cinco acciones, cada una con un título de máximo 8 palabras y un detalle de máximo 30 palabras.'
+      : 'Límites: la conclusión en máximo 80 palabras; cada bloque en un solo párrafo de máximo 75 palabras; de cuatro a seis acciones, cada una con un título de máximo 9 palabras y un detalle de máximo 40 palabras que diga qué hacer, dónde y qué se espera.',
     ctx.profile.trim() === '' ? '' : `PERFIL DE LA CUENTA:\n${ctx.profile.trim()}`,
     ctx.baseline === null ? '' : `BASELINE (contexto de semanas anteriores):\n${ctx.baseline}`,
     `DATOS (JSON):\n${JSON.stringify(aiPayload(d))}`,

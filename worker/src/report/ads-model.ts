@@ -75,7 +75,9 @@ const ETIQUETAS: Record<string, string> = {
   ENABLED: 'Activa', PAUSED: 'En pausa', REMOVED: 'Eliminada',
   SEARCH: 'Búsqueda', PERFORMANCE_MAX: 'Performance Max', DISPLAY: 'Display', VIDEO: 'Video', SHOPPING: 'Shopping', DEMAND_GEN: 'Demand Gen',
   ABOVE_AVERAGE: 'Superior', AVERAGE: 'Promedio', BELOW_AVERAGE: 'Inferior',
-  EXCELLENT: 'Excelente', GOOD: 'Buena', POOR: 'Deficiente', PENDING: 'Pendiente',
+  EXCELLENT: 'Excelente', GOOD: 'Buena', POOR: 'Deficiente', PENDING: 'Pendiente', UNSPECIFIED: '—', UNKNOWN: '—',
+  RESPONSIVE_SEARCH_AD: 'Anuncio adaptable', EXPANDED_TEXT_AD: 'Anuncio de texto expandido (antiguo)',
+  CALL_AD: 'Anuncio de llamada', RESPONSIVE_DISPLAY_AD: 'Anuncio de display adaptable', SMART_CAMPAIGN_AD: 'Anuncio de campaña inteligente',
   APPROVED: 'Aprobado', APPROVED_LIMITED: 'Limitado', DISAPPROVED: 'Rechazado', AREA_OF_INTEREST_ONLY: 'Solo zona de interés',
   TARGET_SPEND: 'Maximizar clics', MAXIMIZE_CONVERSIONS: 'Maximizar conversiones', MAXIMIZE_CONVERSION_VALUE: 'Maximizar valor',
   CONTACT: 'Contacto', PHONE_CALL_LEAD: 'Llamada', SUBMIT_LEAD_FORM: 'Formulario', PURCHASE: 'Compra', SIGNUP: 'Registro',
@@ -230,7 +232,10 @@ export function buildAdsReport(input: BuildAdsInput): AdsReportData {
   const semana = { start: addDaysIso(input.latestDate, -6), end: input.latestDate };
   const semanaPrevia = { start: addDaysIso(input.latestDate, -13), end: addDaysIso(input.latestDate, -7) };
 
-  const campaigns: AdsCampaignLine[] = n.campaigns.map((c) => ({
+  // Google devuelve también las campañas eliminadas o en pausa sin una sola
+  // impresión en el periodo. No dicen nada; una activa sin impresiones, sí.
+  const conActividad = n.campaigns.filter((c) => c.status === 'ENABLED' || c.impressions > 0 || c.cost > 0);
+  const campaigns: AdsCampaignLine[] = conActividad.map((c) => ({
     ...kpisOf(c),
     id: c.id,
     name: c.name,

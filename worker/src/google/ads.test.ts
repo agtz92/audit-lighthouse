@@ -186,6 +186,22 @@ describe('inventario y PMax', () => {
     assert.equal(vieja?.type, null);
   });
 
+  test('una acción con conversiones cuenta en «Conversiones» aunque la configuración diga que no', () => {
+    const inv = parseConversionActionInventory([
+      { conversionAction: { name: 'Enviar Whatsapp', type: 'WEBPAGE', category: 'CONTACT', status: 'ENABLED' } },
+    ]);
+    assert.equal(inv[0]?.primary, false, 'sin primaryForGoal ni includeInConversionsMetric');
+    const [wa] = parseConversionActions([
+      { campaign: { id: '1' }, segments: { conversionActionName: 'Enviar Whatsapp', conversionActionCategory: 'CONTACT' }, metrics: { conversions: 142, allConversions: 142 } },
+    ], inv);
+    assert.equal(wa?.primary, true);
+  });
+
+  test('primary_for_goal es el que dice si una acción es primaria', () => {
+    const [a] = parseConversionActionInventory([{ conversionAction: { name: 'x', primaryForGoal: true } }]);
+    assert.equal(a?.primary, true);
+  });
+
   test('cada asset group trae sus assets', () => {
     const assets = parsePmaxAssets([
       { assetGroup: { id: '7' }, asset: { type: 'TEXT', textAsset: { text: 'Cortinas a la medida' } }, assetGroupAsset: { fieldType: 'HEADLINE', primaryStatus: 'ELIGIBLE' } },

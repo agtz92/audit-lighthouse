@@ -235,7 +235,11 @@ export interface AdsConversionActionInfo {
   type: string;
   category: string;
   status: string;
-  /** Si cuenta en la columna «Conversiones», que es la que optimiza la puja. */
+  /**
+   * Si cuenta en la columna «Conversiones», que es la que optimiza la puja.
+   * Desde los objetivos de conversión lo dice primary_for_goal;
+   * include_in_conversions_metric quedó como respaldo de cuentas viejas.
+   */
   primary: boolean;
 }
 
@@ -245,7 +249,7 @@ export function parseConversionActionInventory(rows: AdsRow[]): AdsConversionAct
     type: text(field(r, 'conversionAction.type'), 'UNKNOWN'),
     category: text(field(r, 'conversionAction.category'), 'UNKNOWN'),
     status: text(field(r, 'conversionAction.status'), 'UNKNOWN'),
-    primary: field(r, 'conversionAction.includeInConversionsMetric') === true,
+    primary: field(r, 'conversionAction.primaryForGoal') === true || field(r, 'conversionAction.includeInConversionsMetric') === true,
   })).filter((c) => c.name !== '');
 }
 
@@ -291,7 +295,7 @@ export async function fetchAdsInventory(client: GoogleClient, customerId: string
         WHERE ad_group_ad.status != 'REMOVED' AND campaign.status != 'REMOVED' AND ad_group.status != 'REMOVED'`),
     gaql(client, customerId,
       `SELECT conversion_action.name, conversion_action.type, conversion_action.category, conversion_action.status,
-              conversion_action.include_in_conversions_metric
+              conversion_action.primary_for_goal, conversion_action.include_in_conversions_metric
          FROM conversion_action WHERE conversion_action.status != 'REMOVED'`),
     gaql(client, customerId,
       `SELECT asset_group.id, asset.type, asset.text_asset.text, asset_group_asset.field_type,
@@ -455,7 +459,9 @@ export function parseConversionActions(rows: AdsRow[], inventory: AdsConversionA
     name,
     category: text(field(r, 'segments.conversionActionCategory'), 'UNKNOWN'),
     type: info?.type ?? null,
-    primary: info?.primary ?? null,
+    // Si la acción trae conversiones en la columna «Conversiones», cuenta, diga
+    // lo que diga la configuración: el dato es la prueba.
+    primary: num(field(r, 'metrics.conversions')) > 0 ? true : info?.primary ?? null,
     conversions: round2(num(field(r, 'metrics.conversions'))),
     allConversions: round2(num(field(r, 'metrics.allConversions'))),
     conversionsValue: round2(num(field(r, 'metrics.conversionsValue'))),
@@ -592,6 +598,30 @@ export function parseSchedule(rows: AdsRow[]): AdsSchedule {
  * guardan en `cache`, que dura la sincronización: los cuatro periodos repiten
  * casi las mismas regiones.
  */
+/**
+ * Las audiencias de afinidad e intención llegan como «uservertical::90800»: el
+ * nombre vive en user_interest. Se resuelven en una consulta; si falla, el
+ * informe sale con el id, que sigue siendo correcto aunque menos legible.
+ */
+export async function audienceNames(client: GoogleClient, customerId: string, rows: AdsAudienceRow[]): Promise<AdsAudienceRow[]> {
+  const ids = [...new Set(rows.map((r) => /^uservertical::(\d+)$/.exec(r.name)?.[1]).filter((x): x is string => x !== undefined))];
+  if (ids.length === 0) return rows;
+  let nombres: Map<string, string>;
+  try {
+    const filas = await gaql(client, customerId,
+      `SELECT user_interest.user_interest_id, user_interest.name FROM user_interest
+        WHERE user_interest.user_interest_id IN (${ids.join(', ')})`);
+    nombres = new Map(filas.map((f) => [text(field(f, 'userInterest.userInterestId')), text(field(f, 'userInterest.name'))]));
+  } catch {
+    return rows;
+  }
+  return rows.map((r) => {
+    const id = /^uservertical::(\d+)$/.exec(r.name)?.[1];
+    const nombre = id === undefined ? undefined : nombres.get(id);
+    return nombre === undefined || nombre === '' ? r : { ...r, name: nombre };
+  });
+}
+
 async function geoNames(client: GoogleClient, customerId: string, recursos: string[], cache: Map<string, string>): Promise<void> {
   const faltan = recursos.filter((r) => r.startsWith('geoTargetConstants/') && !cache.has(r));
   if (faltan.length === 0) return;
@@ -679,7 +709,7 @@ export async function fetchAdsPeriod(
     ads: mergeAds(inventory.ads, ads),
     assetGroups: parseAssetGroups(assetGroups, inventory.pmaxAssets),
     pmaxTerms,
-    audiences: parseAudiences(audCampaign, audAdGroup),
+    audiences: await audienceNames(client, customerId, parseAudiences(audCampaign, audAdGroup)),
     devices: labeledBy(devices, (r) => text(field(r, 'segments.device'))),
     landing: labeledBy(landing, (r) => text(field(r, 'landingPageView.unexpandedFinalUrl'))).slice(0, TOP.landing),
     geo: labeledBy(geo, (r) => {

@@ -91,6 +91,15 @@ describe('buildAdsReport', () => {
     assert.ok(uso > 1.04 && uso < 1.06, String(uso));
   });
 
+  test('las campañas eliminadas sin actividad no salen; una activa sin impresiones sí', () => {
+    const d = buildAdsReport(entrada({ now: periodo({ campaigns: [
+      campana(),
+      campana({ id: '2', name: 'Vieja', status: 'REMOVED', ...M(0, 0, 0, 0) }),
+      campana({ id: '3', name: 'Sin entrega', status: 'ENABLED', ...M(0, 0, 0, 0) }),
+    ] }) }));
+    assert.deepEqual(d.campaigns.map((c) => c.name), ['Cortinas Hawaianas', 'Sin entrega']);
+  });
+
   test('un día sin fila dentro del periodo es cero, no hueco', () => {
     const d = buildAdsReport(entrada({ days: dias('2026-08-19', '2026-10-13', 1000).filter((x) => x.date !== '2026-10-05') }));
     const i = eachDay(d.period.current).indexOf('2026-10-05');
